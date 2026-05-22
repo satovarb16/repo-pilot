@@ -103,15 +103,14 @@ Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-c
 
 ## Implementation Phases
 
-Development follows 6 phases defined in `docs/architecture.md` §14:
+Development follows 5 phases defined in `docs/architecture.md` §14 (Phase 0 complete):
 
-0. Monorepo scaffold + DB + layout shell
-1. Local-only repo analysis agent (inline tools, no MCP yet)
-2. MCP server with read-only tools + GitHub clone
-3. File edit proposals + diff viewer + SSE
-4. Docker-sandboxed test runner + repair loop
-5. Branch, commit, PR integration
-6. Trace viewer, security hardening, demo polish
+0. Monorepo scaffold + DB + layout shell ✓
+1. MCP server + repo analysis agent + GitHub clone (no inline tools — MCP from day one)
+2. File edit proposals + diff viewer + SSE
+3. Docker-sandboxed test runner + repair loop
+4. Branch, commit, PR integration
+5. Trace viewer, security hardening, demo polish
 
 The first 10 concrete implementation tasks are listed in §15.
 
