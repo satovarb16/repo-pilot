@@ -31,3 +31,9 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Repo clones
+/tmp/repo-pilot/
+
+# Agent tooling cache
+.atl/
