@@ -118,3 +118,54 @@ See `.env.example` (to be created). Critical vars:
 - `ANTHROPIC_API_KEY` — Claude API key
 - `TOKEN_ENCRYPTION_KEY` — AES-256-GCM key for PAT storage
 - `REPO_ROOT` — base path for local repo clones (e.g. `/tmp/repo-pilot/clones`)
+
+## Testing & CI/CD
+
+### Testing Strategy
+
+- Unit tests live alongside source files (`*.test.ts`) in each package
+- Integration tests live in `tests/` at the package root
+- Run all tests from workspace root: `pnpm test`
+- Run tests for a specific package: `pnpm --filter <package-name> test`
+- Agent-core has the highest test coverage requirement — all state transitions and security invariants must be covered
+- MCP server tool handlers must have integration tests against a real local repo fixture (not mocked FS)
+- Do not mock the database in integration tests; use a dedicated test database via `DATABASE_URL` env override
+
+### CI/CD Pipeline
+
+- All PRs must pass lint, typecheck, and tests before merge
+- `pnpm lint && pnpm typecheck && pnpm test` is the required gate
+- Docker sandbox image is built and smoke-tested in CI using the `Dockerfile.sandbox`
+- No direct commits to `main`; all changes go through PRs
+- Environment secrets (`ANTHROPIC_API_KEY`, `TOKEN_ENCRYPTION_KEY`) are injected via CI secrets — never hardcoded
+
+## Frontend Design Style
+
+The web UI follows a **clean, minimal, and stylish with personality** design language:
+
+- Generous whitespace — let the content breathe; avoid cramped layouts
+- Neutral base palette (slate/zinc grays) with one intentional accent color used sparingly
+- Typography-forward: hierarchy through font weight and size, not decorative elements
+- Subtle animations and transitions — present but never distracting
+- Personality through micro-details: thoughtful empty states, sharp iconography, precise spacing
+- shadcn/ui components are the baseline; customize them to match this aesthetic rather than using defaults as-is
+- Avoid gradients, drop shadows, and visual noise unless they serve a clear purpose
+- Every UI element should feel intentional — if you can't justify why it's there, remove it
+
+## Code Comments
+
+Comment code only when the **why** is non-obvious to an external reader — complex algorithms, non-obvious invariants, workarounds for specific bugs, or surprising behavior. For all other code, add a brief orientation comment every ~20 lines so someone unfamiliar with the codebase can follow the flow without having to trace every call.
+
+- Do **not** explain what the code does if well-named identifiers already make it clear
+- Do **not** add comments that will rot (e.g. referencing a specific issue number or caller name)
+- Do add a short line when the logic would surprise a competent developer on first read
+
+## Tooling
+
+This project uses the **Superpowers plugin** for Claude Code. All sessions should check for and invoke relevant skills before acting. Key skills in use:
+
+- `superpowers:brainstorming` — before any new feature or significant behavior change
+- `superpowers:writing-plans` — before multi-step implementation tasks
+- `superpowers:test-driven-development` — before writing implementation code
+- `superpowers:systematic-debugging` — before proposing any bug fix
+- `superpowers:verification-before-completion` — before claiming work is done or creating PRs
