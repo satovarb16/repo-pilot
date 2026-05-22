@@ -1,0 +1,2 @@
+FROM node:20-alpine
+# Sandboxed test execution environment — implemented in Phase 4
