@@ -969,56 +969,36 @@ repo-pilot/
 
 ---
 
-### Phase 1 — Local-Only Repo Analysis Agent
+### Phase 1 — MCP Server, Repo Analysis Agent, and GitHub Connect
 
-**Goals:** Claude can read a local repo and produce a structured plan. No GitHub, no writes.
-
-**Deliverables:**
-- `agent-core` package with state machine (idle → analyzing → planning → complete)
-- Claude API integration with tool use enabled
-- `read_file`, `list_files`, `search_repo` implemented as inline functions (not MCP yet)
-- `POST /api/agent/runs` creates a run and starts analysis
-- Basic frontend: task input form, step timeline showing state changes
-
-**Backend work:** `AgentOrchestrator` class, `ClaudeService` wrapper, first three tools inline, state machine runner, step logging to DB.
-
-**Frontend work:** Task composer, step timeline (polling GET every 2s), basic plan display as JSON.
-
-**Security work:** Secret redaction service implemented and tested. Path traversal check written and tested.
-
-**Acceptance criteria:** Submit a task like "explain the structure of this repo." The agent calls list_files and read_file, produces a plan, and the plan appears in the UI.
-
-**Likely issues:** Claude tool use format differences between SDK versions, async state machine race conditions, plan JSON parsing failures.
-
----
-
-### Phase 2 — MCP Server with Read-Only Repo Tools
-
-**Goals:** Replace inline tool functions with a real MCP server. Claude now uses the MCP protocol.
+**Goals:** Claude reads a real GitHub repo through a real MCP server and produces a structured plan. No inline tool implementations — MCP protocol from day one.
 
 **Deliverables:**
-- `repo-agent-mcp-server` package with MCP TypeScript SDK
+- `repo-agent-mcp-server` package with MCP TypeScript SDK (stdio transport)
 - Tools: `list_files`, `search_repo`, `read_file`, `get_github_issue`, `get_diff`
 - Resources: `repo://README.md`, `repo://package.json`, `repo://open-issues`
 - Prompts: `analyze_repo_prompt`, `fix_bug_prompt`
-- Backend spawns MCP server as a child process, manages lifecycle
-- GitHub PAT stored encrypted, repo connect flow working
+- `agent-core` package: `AgentStateMachine` (idle → analyzing_repo → planning → waiting_for_plan_approval), `ClaudeService` wrapper, `MCPClientManager`
+- `GitHubService` for clone and issue fetch; `EncryptionService` for PAT storage
+- `POST /api/agent/runs` creates a run and starts analysis
+- `GET /api/agent/runs/:id` returns current run state and steps
+- Frontend: repo connection card, task composer, step timeline (polling GET every 2s), plan display
 
-**Backend work:** `MCPClientManager`, `GitHubService` for clone and issue fetch, `EncryptionService` for token storage.
+**Backend work:** `AgentOrchestrator`, `ClaudeService`, `MCPClientManager` (spawns MCP server as child process), `GitHubService`, `EncryptionService`, step logging to DB.
 
-**Frontend work:** Repo connection card, connected repo shown in sidebar.
+**Frontend work:** Repo connection card (URL + PAT input), connected repo in sidebar, task composer, step timeline, basic plan card (JSON).
 
-**MCP work:** Full MCP server with stdio transport, tool handlers for all read-only tools.
+**MCP work:** Full MCP server with stdio transport and all read-only tool handlers.
 
-**Security work:** Token encryption working. Blocklisted files rejected. Path traversal tested.
+**Security work:** Secret redaction service implemented and tested. Path traversal check written and tested. Token encryption working. Blocklisted files rejected.
 
-**Acceptance criteria:** Connect AlgoArena repo. Agent uses MCP tools to analyze it. Tool trace shows real MCP calls with inputs/outputs.
+**Acceptance criteria:** Connect AlgoArena repo. Submit "explain the structure of this repo." Agent uses real MCP tools (`list_files`, `read_file`, `search_repo`), produces a plan, plan appears in UI. Tool trace shows real MCP calls with inputs and outputs.
 
-**Likely issues:** MCP stdio protocol framing issues, child process lifecycle management, GitHub clone timing for large repos.
+**Likely issues:** MCP stdio protocol framing issues, child process lifecycle management, Claude tool use format differences between SDK versions, async state machine race conditions, GitHub clone timing for large repos.
 
 ---
 
-### Phase 3 — File Edit Proposals and Diff Viewer
+### Phase 2 — File Edit Proposals and Diff Viewer
 
 **Goals:** Claude can propose file edits. User sees diff and approves or rejects per file.
 
@@ -1042,7 +1022,7 @@ repo-pilot/
 
 ---
 
-### Phase 4 — Sandboxed Test Runner
+### Phase 3 — Sandboxed Test Runner
 
 **Goals:** Tests run inside Docker. Results displayed. Agent can attempt one repair.
 
@@ -1066,7 +1046,7 @@ repo-pilot/
 
 ---
 
-### Phase 5 — GitHub Branch, Commit, and PR Integration
+### Phase 4 — GitHub Branch, Commit, and PR Integration
 
 **Goals:** Agent creates branch, commits changes, and opens a real pull request.
 
@@ -1088,7 +1068,7 @@ repo-pilot/
 
 ---
 
-### Phase 6 — Trace Viewer, Security Hardening, and Polished Demo
+### Phase 5 — Trace Viewer, Security Hardening, and Polished Demo
 
 **Goals:** Production-quality UI, complete trace visibility, security review, demo-ready.
 
