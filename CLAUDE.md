@@ -94,7 +94,12 @@ Runs as a sidecar process with `REPO_ROOT` env var. Operates on the local clone.
 
 ### Frontend Stack
 
-Next.js 14 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-continued`. Three-panel dashboard: left sidebar (repos/runs), center (task composer, plan card, step timeline, approval gates), right panel (tool trace, diff viewer, test output).
+Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-continued`. Three-panel dashboard: left sidebar (repos/runs), center (task composer, plan card, step timeline, approval gates), right panel (tool trace, diff viewer, test output).
+
+## Branch & Documentation Strategy
+
+- One branch per phase: `feat/phase-N-<description>` → PR → merge → delete branch
+- Documentation (`docs/`) is updated **after** the phase, task, or feature is fully done and stable — never speculatively
 
 ## Implementation Phases
 

@@ -156,7 +156,7 @@ Cut everything below until the MVP demo is rock solid:
 
 ## 6. Frontend Design Specification
 
-**Stack:** Next.js 14 App Router, TypeScript, Tailwind CSS, shadcn/ui, react-diff-viewer-continued (Monaco is overkill for diff-only display; use it only for the file editor pane if you add one later).
+**Stack:** Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, react-diff-viewer-continued (Monaco is overkill for diff-only display; use it only for the file editor pane if you add one later).
 
 **Color palette:** Background `#0d0f12`, surface `#161a1f`, border `#1f2937`, accent blue `#3b82f6`, accent green `#22c55e`, accent amber `#f59e0b`, destructive red `#ef4444`. Monospace font: JetBrains Mono or Fira Code via `next/font`.
 
@@ -931,7 +931,7 @@ get_github_issue
 
 ## 14. Development Phases
 
-### Phase 0 — Project Setup and Repo Structure
+### Phase 0 — Project Setup and Repo Structure ✓ COMPLETE
 
 **Goals:** Working monorepo, TypeScript compiling, database connected, dev server running.
 
@@ -952,7 +952,6 @@ repo-pilot/
     schema.prisma
   docker/
     docker-compose.yml      (postgres + api)
-    Dockerfile.api
     Dockerfile.sandbox      (for test execution)
   docs/
     architecture.md
