@@ -11,7 +11,9 @@
   "devDependencies": {
     "turbo": "^2",
     "typescript": "^5",
-    "vitest": "^3"
+    "vitest": "^3",
+    "prisma": "^5",
+    "@prisma/client": "^5"
   },
   "engines": {
     "node": ">=20",
