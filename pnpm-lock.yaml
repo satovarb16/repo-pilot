@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@prisma/client':
+        specifier: ^5
+        version: 5.22.0(prisma@5.22.0)
+      prisma:
+        specifier: ^5
+        version: 5.22.0
       turbo:
         specifier: ^2
         version: 2.9.14
@@ -43,7 +49,7 @@ importers:
         specifier: ^20
         version: 20.19.41
       prisma:
-        specifier: ^5
+        specifier: ^5.22.0
         version: 5.22.0
       tsx:
         specifier: ^4
