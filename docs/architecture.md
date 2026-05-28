@@ -973,24 +973,25 @@ repo-pilot/
 
 **Goals:** Claude reads a real GitHub repo through a real MCP server and produces a structured plan. No inline tool implementations — MCP protocol from day one.
 
-**Deliverables:**
+**Progress:**
+
+#### PR #5 ✓ COMPLETE — Security Foundation
+- `@repo-pilot/shared`: domain enums (`AgentRunStatus`, `CloneStatus`, `ApprovalStatus`, `ApprovalType`, `FileChangeType`, `TestRunStatus`, `ToolPermissionLevel`), TypeScript interfaces for all DB models, runtime type guards
+- `SecretRedactor`: redacts GitHub PATs, Anthropic/AWS/Azure keys, Bearer tokens, PEM blocks, env-style secret assignments before any content reaches the Claude API
+- `PathValidator`: validates all file paths stay inside `REPO_ROOT`; throws `PathValidationError` on traversal attempts
+- `EncryptionService`: AES-256-GCM encrypt/decrypt for GitHub PAT storage, random IV per call, auth tag verification on decrypt
+- Initial Prisma migration applied (`20260528225129_init`)
+- 37 tests, all passing, strict TDD
+
+#### Pending — MCP Server and Agent Core
 - `repo-agent-mcp-server` package with MCP TypeScript SDK (stdio transport)
 - Tools: `list_files`, `search_repo`, `read_file`, `get_github_issue`, `get_diff`
 - Resources: `repo://README.md`, `repo://package.json`, `repo://open-issues`
 - Prompts: `analyze_repo_prompt`, `fix_bug_prompt`
-- `agent-core` package: `AgentStateMachine` (idle → analyzing_repo → planning → waiting_for_plan_approval), `ClaudeService` wrapper, `MCPClientManager`
-- `GitHubService` for clone and issue fetch; `EncryptionService` for PAT storage
-- `POST /api/agent/runs` creates a run and starts analysis
-- `GET /api/agent/runs/:id` returns current run state and steps
-- Frontend: repo connection card, task composer, step timeline (polling GET every 2s), plan display
-
-**Backend work:** `AgentOrchestrator`, `ClaudeService`, `MCPClientManager` (spawns MCP server as child process), `GitHubService`, `EncryptionService`, step logging to DB.
-
-**Frontend work:** Repo connection card (URL + PAT input), connected repo in sidebar, task composer, step timeline, basic plan card (JSON).
-
-**MCP work:** Full MCP server with stdio transport and all read-only tool handlers.
-
-**Security work:** Secret redaction service implemented and tested. Path traversal check written and tested. Token encryption working. Blocklisted files rejected.
+- `AgentStateMachine` (idle → analyzing_repo → planning → waiting_for_plan_approval), `ClaudeService`, `MCPClientManager`
+- `GitHubService` for clone and issue fetch
+- `POST /api/agent/runs`, `GET /api/agent/runs/:id`
+- Frontend: repo connection card, task composer, step timeline, basic plan card
 
 **Acceptance criteria:** Connect AlgoArena repo. Submit "explain the structure of this repo." Agent uses real MCP tools (`list_files`, `read_file`, `search_repo`), produces a plan, plan appears in UI. Tool trace shows real MCP calls with inputs and outputs.
 
