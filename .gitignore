@@ -37,3 +37,7 @@ coverage/
 
 # Agent tooling cache
 .atl/
+
+# Nested lockfiles — pnpm workspaces uses a single root pnpm-lock.yaml
+apps/*/pnpm-lock.yaml
+packages/*/pnpm-lock.yaml

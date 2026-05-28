@@ -106,7 +106,9 @@ Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-c
 Development follows 5 phases defined in `docs/architecture.md` §14 (Phase 0 complete):
 
 0. Monorepo scaffold + DB + layout shell ✓
-1. MCP server + repo analysis agent + GitHub clone (no inline tools — MCP from day one)
+1. MCP server + repo analysis agent + GitHub clone (no inline tools — MCP from day one) — in progress
+   - PR #5 ✓: shared types, SecretRedactor, PathValidator, EncryptionService
+   - Pending: MCP server, AgentStateMachine, ClaudeService, GitHubService, API routes, frontend
 2. File edit proposals + diff viewer + SSE
 3. Docker-sandboxed test runner + repair loop
 4. Branch, commit, PR integration
