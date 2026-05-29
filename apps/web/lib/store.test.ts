@@ -97,3 +97,47 @@ describe('AppStore', () => {
     expect(useAppStore.getState().runStatus).toBe('idle')
   })
 })
+
+describe('plan proposal state', () => {
+  it('setPlanProposal stores the proposal', () => {
+    const { setPlanProposal } = useAppStore.getState()
+    setPlanProposal({ planText: 'Step 1: analyze\nStep 2: edit' })
+    expect(useAppStore.getState().planProposal).toEqual({ planText: 'Step 1: analyze\nStep 2: edit' })
+  })
+
+  it('clearPlanProposal sets planProposal to null', () => {
+    const { setPlanProposal, clearPlanProposal } = useAppStore.getState()
+    setPlanProposal({ planText: 'some plan' })
+    clearPlanProposal()
+    expect(useAppStore.getState().planProposal).toBeNull()
+  })
+})
+
+describe('pending edits state', () => {
+  it('addPendingEdit adds a FileChange with status pending', () => {
+    useAppStore.setState({ pendingEdits: [] })
+    const { addPendingEdit } = useAppStore.getState()
+    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b' })
+    const edits = useAppStore.getState().pendingEdits
+    expect(edits).toHaveLength(1)
+    expect(edits[0]).toEqual({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b', status: 'pending' })
+  })
+
+  it('resolveEdit updates the status of a specific edit', () => {
+    useAppStore.setState({ pendingEdits: [] })
+    const { addPendingEdit, resolveEdit } = useAppStore.getState()
+    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '' })
+    addPendingEdit({ changeId: 'c2', filePath: 'src/bar.ts', diff: '' })
+    resolveEdit('c1', 'approved')
+    const edits = useAppStore.getState().pendingEdits
+    expect(edits.find((e) => e.changeId === 'c1')?.status).toBe('approved')
+    expect(edits.find((e) => e.changeId === 'c2')?.status).toBe('pending')
+  })
+
+  it('clearPendingEdits resets to empty array', () => {
+    const { addPendingEdit, clearPendingEdits } = useAppStore.getState()
+    addPendingEdit({ changeId: 'c1', filePath: 'f.ts', diff: '' })
+    clearPendingEdits()
+    expect(useAppStore.getState().pendingEdits).toHaveLength(0)
+  })
+})

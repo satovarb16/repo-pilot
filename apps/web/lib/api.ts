@@ -45,3 +45,28 @@ export async function startRun(
     body: JSON.stringify({ repositoryId, taskDescription }),
   })
 }
+
+export async function approvePlan(runId: string): Promise<void> {
+  await request(`/agent/runs/${runId}/approve-plan`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'approve' }),
+  })
+}
+
+export async function rejectPlan(runId: string): Promise<void> {
+  await request(`/agent/runs/${runId}/approve-plan`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'reject' }),
+  })
+}
+
+export async function resolveEdit(
+  runId: string,
+  changeId: string,
+  action: 'approve' | 'reject',
+): Promise<void> {
+  await request(`/agent/runs/${runId}/file-changes/${changeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  })
+}

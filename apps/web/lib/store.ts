@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AgentSSEEvent, Repository, RunStatus } from './types'
+import type { AgentSSEEvent, FileChange, PlanProposal, Repository, RunStatus } from './types'
 
 export type TracedEvent = AgentSSEEvent & { _key: number }
 
@@ -9,6 +9,8 @@ interface AppStore {
   activeRunId: string | null
   traceEvents: TracedEvent[]
   runStatus: RunStatus
+  planProposal: PlanProposal | null
+  pendingEdits: FileChange[]
   setRepos: (repos: Repository[]) => void
   addRepo: (repo: Repository) => void
   selectRepo: (id: string | null) => void
@@ -16,6 +18,11 @@ interface AppStore {
   appendTraceEvent: (event: AgentSSEEvent) => void
   clearTrace: () => void
   setRunStatus: (status: RunStatus) => void
+  setPlanProposal: (proposal: PlanProposal) => void
+  clearPlanProposal: () => void
+  addPendingEdit: (edit: Omit<FileChange, 'status'>) => void
+  resolveEdit: (changeId: string, status: 'approved' | 'rejected') => void
+  clearPendingEdits: () => void
 }
 
 let _traceSeq = 0
@@ -26,6 +33,8 @@ export const useAppStore = create<AppStore>()((set) => ({
   activeRunId: null,
   traceEvents: [],
   runStatus: 'idle',
+  planProposal: null,
+  pendingEdits: [],
 
   setRepos: (repos) => set({ repos }),
 
@@ -37,7 +46,7 @@ export const useAppStore = create<AppStore>()((set) => ({
     })),
 
   selectRepo: (id) =>
-    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle' }),
+    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle', planProposal: null, pendingEdits: [] }),
 
   setActiveRun: (runId) => set({ activeRunId: runId, runStatus: 'running' }),
 
@@ -56,4 +65,22 @@ export const useAppStore = create<AppStore>()((set) => ({
   clearTrace: () => set({ traceEvents: [], activeRunId: null, runStatus: 'idle' }),
 
   setRunStatus: (status) => set({ runStatus: status }),
+
+  setPlanProposal: (proposal) => set({ planProposal: proposal }),
+
+  clearPlanProposal: () => set({ planProposal: null }),
+
+  addPendingEdit: (edit) =>
+    set((state) => ({
+      pendingEdits: [...state.pendingEdits, { ...edit, status: 'pending' }],
+    })),
+
+  resolveEdit: (changeId, status) =>
+    set((state) => ({
+      pendingEdits: state.pendingEdits.map((e) =>
+        e.changeId === changeId ? { ...e, status } : e,
+      ),
+    })),
+
+  clearPendingEdits: () => set({ pendingEdits: [] }),
 }))

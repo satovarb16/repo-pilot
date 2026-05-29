@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { connectRepo, listRepos, startRun, ApiError } from './api'
+import { connectRepo, listRepos, startRun, ApiError, approvePlan, rejectPlan, resolveEdit } from './api'
 import type { ConnectRepoInput } from './types'
 
 describe('API client', () => {
@@ -100,6 +100,80 @@ describe('API client', () => {
       })
 
       await expect(startRun('bad-id', 'task')).rejects.toThrow(ApiError)
+    })
+  })
+
+  describe('approvePlan', () => {
+    it('sends POST to /agent/runs/:runId/approve-plan with action approve', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      })
+
+      await approvePlan('run-1')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/approve-plan',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ action: 'approve' }),
+        }),
+      )
+    })
+  })
+
+  describe('rejectPlan', () => {
+    it('sends POST with action reject', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      })
+
+      await rejectPlan('run-1')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/approve-plan',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ action: 'reject' }),
+        }),
+      )
+    })
+  })
+
+  describe('resolveEdit', () => {
+    it('sends PATCH to /agent/runs/:runId/file-changes/:changeId', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      })
+
+      await resolveEdit('run-1', 'change-1', 'approve')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/file-changes/change-1',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ action: 'approve' }),
+        }),
+      )
+    })
+
+    it('sends reject action correctly', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      })
+
+      await resolveEdit('run-1', 'change-2', 'reject')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/file-changes/change-2',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ action: 'reject' }),
+        }),
+      )
     })
   })
 })

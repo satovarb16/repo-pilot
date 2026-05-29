@@ -7,6 +7,17 @@ export interface Repository {
   createdAt: string
 }
 
+export interface FileChange {
+  changeId: string
+  filePath: string
+  diff: string
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+export interface PlanProposal {
+  planText: string
+}
+
 export type AgentSSEEvent =
   | { type: 'state_changed'; state: string }
   | { type: 'step_started'; stepType: string; description: string }
