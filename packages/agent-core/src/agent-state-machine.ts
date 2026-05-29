@@ -123,8 +123,8 @@ export class AgentStateMachine {
       this.emit({ type: 'run_completed', planJson: lastMessage.content });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.fail(message);
       this.emit({ type: 'run_failed', error: message });
+      await this.fail(message);
       throw err;
     } finally {
       if (mcpStarted) await this.mcpClientManager.stop().catch(() => {});
@@ -152,6 +152,7 @@ export class AgentStateMachine {
 
   private async completeStep(stepType: string): Promise<void> {
     const startTime = this.stepStartTimes.get(stepType) ?? Date.now();
+    this.stepStartTimes.delete(stepType);
     const durationMs = Date.now() - startTime;
     await this.prisma.agentStep.updateMany({
       where: { runId: this.runId, stepType, status: 'running' },
