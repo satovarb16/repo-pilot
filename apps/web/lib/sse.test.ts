@@ -59,7 +59,7 @@ describe('useAgentStream', () => {
       JSON.stringify({ type: 'state_changed', state: 'analyzing_repo' }),
     )
     expect(useAppStore.getState().traceEvents).toHaveLength(1)
-    expect(useAppStore.getState().traceEvents[0]).toEqual({
+    expect(useAppStore.getState().traceEvents[0]).toMatchObject({
       type: 'state_changed',
       state: 'analyzing_repo',
     })

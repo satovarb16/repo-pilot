@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from './store'
 import type { AgentSSEEvent, Repository } from './types'
+import type { TracedEvent } from './store'
 
 const testRepo: Repository = {
   id: 'repo-1',
@@ -37,7 +38,7 @@ describe('AppStore', () => {
   it('selectRepo sets selectedRepoId and clears run state', () => {
     useAppStore.setState({
       activeRunId: 'run-1',
-      traceEvents: [{ type: 'run_failed', error: 'x' }],
+      traceEvents: [{ type: 'run_failed', error: 'x', _key: 0 }] as TracedEvent[],
       runStatus: 'failed',
     })
     useAppStore.getState().selectRepo('repo-1')
@@ -51,7 +52,7 @@ describe('AppStore', () => {
     const event: AgentSSEEvent = { type: 'state_changed', state: 'analyzing_repo' }
     useAppStore.getState().appendTraceEvent(event)
     expect(useAppStore.getState().traceEvents).toHaveLength(1)
-    expect(useAppStore.getState().traceEvents[0]).toEqual(event)
+    expect(useAppStore.getState().traceEvents[0]).toMatchObject(event)
   })
 
   it('appendTraceEvent caps at 500 entries dropping the oldest', () => {
@@ -87,7 +88,7 @@ describe('AppStore', () => {
   it('clearTrace resets traceEvents, activeRunId, and runStatus', () => {
     useAppStore.setState({
       activeRunId: 'run-1',
-      traceEvents: [{ type: 'run_failed', error: 'x' }],
+      traceEvents: [{ type: 'run_failed', error: 'x', _key: 0 }] as TracedEvent[],
       runStatus: 'failed',
     })
     useAppStore.getState().clearTrace()

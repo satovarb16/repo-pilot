@@ -64,8 +64,8 @@ export function TraceLog() {
 
   return (
     <div className="h-full overflow-y-auto font-mono text-xs p-2 space-y-0.5">
-      {traceEvents.map((event, i) => (
-        <div key={i} className={`leading-relaxed ${eventColor(event)}`}>
+      {traceEvents.map((event) => (
+        <div key={event._key} className={`leading-relaxed ${eventColor(event)}`}>
           {formatEvent(event)}
         </div>
       ))}

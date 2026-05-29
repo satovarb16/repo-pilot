@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import type { AgentSSEEvent, Repository, RunStatus } from './types'
 
+export type TracedEvent = AgentSSEEvent & { _key: number }
+
 interface AppStore {
   repos: Repository[]
   selectedRepoId: string | null
   activeRunId: string | null
-  traceEvents: AgentSSEEvent[]
+  traceEvents: TracedEvent[]
   runStatus: RunStatus
   setRepos: (repos: Repository[]) => void
   addRepo: (repo: Repository) => void
@@ -15,6 +17,8 @@ interface AppStore {
   clearTrace: () => void
   setRunStatus: (status: RunStatus) => void
 }
+
+let _traceSeq = 0
 
 export const useAppStore = create<AppStore>()((set) => ({
   repos: [],
@@ -39,12 +43,15 @@ export const useAppStore = create<AppStore>()((set) => ({
 
   // Cap at 500 entries — drop the oldest when the buffer is full
   appendTraceEvent: (event) =>
-    set((state) => ({
-      traceEvents:
-        state.traceEvents.length >= 500
-          ? [...state.traceEvents.slice(1), event]
-          : [...state.traceEvents, event],
-    })),
+    set((state) => {
+      const traced: TracedEvent = { ...event, _key: ++_traceSeq }
+      return {
+        traceEvents:
+          state.traceEvents.length >= 500
+            ? [...state.traceEvents.slice(1), traced]
+            : [...state.traceEvents, traced],
+      }
+    }),
 
   clearTrace: () => set({ traceEvents: [], activeRunId: null, runStatus: 'idle' }),
 
