@@ -34,19 +34,19 @@ model Repository {
 }
 
 model AgentRun {
-  id              String      @id @default(cuid())
+  id              String       @id @default(cuid())
   userId          String
-  user            User        @relation(fields: [userId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
   repoId          String
-  repo            Repository  @relation(fields: [repoId], references: [id])
+  repo            Repository   @relation(fields: [repoId], references: [id])
   taskDescription String
-  status          String      @default("created")
-  currentState    String      @default("idle")
+  status          String       @default("created")
+  currentState    String       @default("idle")
   branchName      String?
   planJson        Json?
   summaryText     String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
   steps           AgentStep[]
   toolCalls       ToolCall[]
   approvals       Approval[]
@@ -97,31 +97,31 @@ model Approval {
 }
 
 model FileChange {
-  id               String    @id @default(cuid())
-  runId            String
-  run              AgentRun  @relation(fields: [runId], references: [id])
-  filePath         String
-  changeType       String
-  originalContent  String?   @db.Text
-  proposedContent  String?   @db.Text
-  diffContent      String?   @db.Text
-  approved         Boolean?
-  writtenAt        DateTime?
-  createdAt        DateTime  @default(now())
+  id              String    @id @default(cuid())
+  runId           String
+  run             AgentRun  @relation(fields: [runId], references: [id])
+  filePath        String
+  changeType      String
+  originalContent String?   @db.Text
+  proposedContent String?   @db.Text
+  diffContent     String?   @db.Text
+  approved        Boolean?
+  writtenAt       DateTime?
+  createdAt       DateTime  @default(now())
 }
 
 model TestRun {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   runId       String
-  run         AgentRun  @relation(fields: [runId], references: [id])
+  run         AgentRun @relation(fields: [runId], references: [id])
   command     String
   status      String
   exitCode    Int?
-  stdout      String?   @db.Text
-  stderr      String?   @db.Text
+  stdout      String?  @db.Text
+  stderr      String?  @db.Text
   durationMs  Int?
   dockerImage String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 }
 
 model PullRequest {
