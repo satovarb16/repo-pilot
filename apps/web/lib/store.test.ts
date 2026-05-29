@@ -63,7 +63,8 @@ describe('AppStore', () => {
       useAppStore.getState().appendTraceEvent(event)
     }
     expect(useAppStore.getState().traceEvents).toHaveLength(500)
-    expect(useAppStore.getState().traceEvents[0].state).toBe('state-1')
+    const first = useAppStore.getState().traceEvents[0] as { type: 'state_changed'; state: string }
+    expect(first.state).toBe('state-1')
   })
 
   it('setActiveRun sets activeRunId and runStatus to running', () => {
