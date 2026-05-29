@@ -5,4 +5,8 @@ export default defineWorkspace([
   'packages/agent-core/vitest.config.ts',
   'packages/mcp-server/vitest.config.ts',
   'apps/api/vitest.config.ts',
+  {
+    extends: './apps/web/vitest.config.ts',
+    test: { name: 'web' },
+  },
 ]);
