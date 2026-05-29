@@ -54,9 +54,12 @@ export class GitHubService {
       if (existsSync(repoPath)) {
         await rm(repoPath, { recursive: true, force: true }).catch(() => {});
       }
-      throw new GitHubCloneError(
-        `Failed to clone ${cloneUrl}: ${err instanceof Error ? err.message : String(err)}`,
+      // Strip embedded token from simple-git error messages before surfacing
+      const safeMessage = (err instanceof Error ? err.message : String(err)).replace(
+        /x-access-token:[^@]+@/g,
+        '',
       );
+      throw new GitHubCloneError(`Failed to clone ${cloneUrl}: ${safeMessage}`);
     }
 
     return repoPath;
@@ -86,8 +89,8 @@ export class GitHubService {
           .map((l) => (typeof l === 'string' ? l : l.name ?? ''))
           .filter(Boolean),
       };
-    } catch (err: any) {
-      if (err?.status === 404) {
+    } catch (err: unknown) {
+      if (err !== null && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) {
         throw new GitHubIssueNotFoundError(owner, repo, issueNumber);
       }
       throw err;
