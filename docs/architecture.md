@@ -1005,14 +1005,14 @@ repo-pilot/
 - All routes wired in `apps/api/src/index.ts`
 - 25 tests passing; testable via curl/Postman
 
-#### PR C2 🔲 IN PROGRESS — Frontend
+#### PR C2 ✓ COMPLETE — Frontend (PR #12)
 - Zustand store (repos, selectedRepoId, activeRunId, traceEvents, runStatus)
 - `ConnectRepoDialog` (shadcn Dialog — fetches `githubRepoId` from GitHub API before submit)
 - `TaskComposer` (textarea + Start Run button)
-- `TraceLog` (monospace SSE event log, auto-scroll, color by event type)
+- `TraceLog` (monospace SSE event log, auto-scroll, color by event type, stable `_key`)
 - `lib/api.ts` (typed fetch wrapper), `lib/sse.ts` (`useAgentStream` hook)
 - Next.js proxy rewrite for `/api/v1/*` → `http://localhost:3001/api/v1/*`
-- Store + API + SSE hook tests (Vitest)
+- Store + API + SSE hook tests (Vitest — 21 tests passing)
 
 **Acceptance criteria:** Connect AlgoArena repo. Submit "explain the structure of this repo." Agent uses real MCP tools (`list_files`, `read_file`, `search_repo`), produces a plan, plan appears in UI. Tool trace shows real MCP calls with inputs and outputs.
 
