@@ -15,12 +15,12 @@ describe('Agent run routes', () => {
   const createdRunIds: string[] = [];
 
   const mockAgentRunner = {
-    start: vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined),
-    getEmitter: vi.fn<[string], EventEmitter | undefined>(),
+    start: vi.fn().mockResolvedValue(undefined),
+    getEmitter: vi.fn<() => EventEmitter | undefined>(),
   };
 
   const mockGithubService = {
-    cloneRepo: vi.fn<[string, string, string], Promise<string>>().mockResolvedValue('/tmp/test-clone'),
+    cloneRepo: vi.fn().mockResolvedValue('/tmp/test-clone'),
   };
 
   beforeAll(async () => {
