@@ -35,4 +35,9 @@ describe('searchRepo', () => {
     expect(result).toContain('src/utils.ts');
     expect(result).not.toContain('package.json');
   });
+
+  it('does not return content from blocklisted files', () => {
+    const result = searchRepo(repo.root, 'SECRET');
+    expect(result).not.toContain('.env');
+  });
 });
