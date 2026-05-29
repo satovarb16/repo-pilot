@@ -9,6 +9,8 @@ export type AgentSSEEvent =
   | { type: 'step_started'; stepType: string; description: string }
   | { type: 'step_completed'; stepType: string; durationMs: number }
   | { type: 'tool_called'; name: string; input: unknown; output: string }
+  | { type: 'approval_required'; approvalType: 'plan'; planText: string }
+  | { type: 'edit_proposed'; changeId: string; filePath: string; diff: string }
   | { type: 'run_completed'; planJson: unknown }
   | { type: 'run_failed'; error: string }
 
