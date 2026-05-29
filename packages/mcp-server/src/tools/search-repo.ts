@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { PathValidator } from '@repo-pilot/agent-core';
+import { isBlocklisted } from '../blocklist.js';
 
 const EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', '.turbo', '.next']);
 const MAX_RESULTS = 100;
@@ -40,6 +41,7 @@ function walkAndSearch(dir: string, repoRoot: string, regex: RegExp, matches: st
     if (entry.isDirectory()) {
       if (!EXCLUDED_DIRS.has(entry.name)) walkAndSearch(fullPath, repoRoot, regex, matches);
     } else {
+      if (isBlocklisted(fullPath)) continue;
       try {
         const content = readFileSync(fullPath, 'utf8');
         const lines = content.split('\n');
