@@ -131,6 +131,18 @@ describe('ClaudeService', () => {
     vi.useRealTimers();
   });
 
+  it('throws on unexpected stop_reason', async () => {
+    getMockCreate(service).mockResolvedValueOnce({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'Truncated.' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
+    ).rejects.toThrow('Unexpected stop_reason: max_tokens');
+  });
+
   it('logs token usage after each API call', async () => {
     const consoleSpy = vi.spyOn(console, 'log');
     getMockCreate(service).mockResolvedValueOnce(makeEndTurnResponse('Done.'));

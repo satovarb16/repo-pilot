@@ -21,7 +21,7 @@ export class ClaudeService {
   async sendWithTools(
     messages: Anthropic.MessageParam[],
     tools: Anthropic.Tool[],
-    toolExecutor: (name: string, args: unknown) => Promise<string>,
+    toolExecutor: (name: string, args: Record<string, unknown>) => Promise<string>,
     systemPrompt?: string,
   ): Promise<Anthropic.MessageParam[]> {
     const current = [...messages];
@@ -54,8 +54,14 @@ export class ClaudeService {
           }
         }
 
-        current.push({ role: 'user', content: toolResults });
+        if (toolResults.length > 0) {
+          current.push({ role: 'user', content: toolResults });
+        }
+
+        continue;
       }
+
+      throw new Error(`Unexpected stop_reason: ${response.stop_reason}`);
     }
   }
 
