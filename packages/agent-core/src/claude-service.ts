@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SecretRedactor } from './secret-redactor.js';
 
-const MAX_TOOL_ITERATIONS = 20;
+export const MAX_TOOL_ITERATIONS = 20;
 
 export class ClaudeRateLimitError extends Error {
   constructor() {
@@ -50,9 +50,8 @@ export class ClaudeService {
         `[ClaudeService] tokens: input=${response.usage.input_tokens} output=${response.usage.output_tokens}`,
       );
 
-      current.push({ role: 'assistant', content: response.content });
-
       if (response.stop_reason === 'end_turn') {
+        current.push({ role: 'assistant', content: response.content });
         return current;
       }
 
@@ -66,11 +65,13 @@ export class ClaudeService {
           throw new ClaudeMaxIterationsError();
         }
 
+        current.push({ role: 'assistant', content: response.content });
+
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
         for (const block of response.content) {
           if (block.type === 'tool_use') {
-            const raw = await toolExecutor(block.name, block.input);
+            const raw = await toolExecutor(block.name, block.input as Record<string, unknown>);
             const redacted = this.secretRedactor.redact(raw);
             toolResults.push({
               type: 'tool_result',

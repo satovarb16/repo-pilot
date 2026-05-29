@@ -5,6 +5,7 @@ import {
   ClaudeRateLimitError,
   ClaudeContextLimitError,
   ClaudeMaxIterationsError,
+  MAX_TOOL_ITERATIONS,
 } from './claude-service.js';
 
 vi.mock('@anthropic-ai/sdk', () => {
@@ -179,6 +180,8 @@ describe('ClaudeService', () => {
     await expect(
       service.sendWithTools([{ role: 'user', content: 'Go' }], [], async () => 'result'),
     ).rejects.toThrow(ClaudeMaxIterationsError);
+
+    expect(mockCreate).toHaveBeenCalledTimes(MAX_TOOL_ITERATIONS + 1);
   });
 
   it('propagates network error without retry (fail fast)', async () => {
