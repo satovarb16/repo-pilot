@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import { Octokit } from '@octokit/rest';
 
 export class GitHubCloneError extends Error {
