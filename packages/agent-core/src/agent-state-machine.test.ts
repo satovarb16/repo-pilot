@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { PrismaClient } from '@prisma/client';
 import { AgentStateMachine } from './agent-state-machine.js';
+import type { AgentSSEEvent } from './agent-state-machine.js';
 
 // Mock ClaudeService and MCPClientManager — only DB interaction is real
 const mockCallTool = vi.fn().mockResolvedValue('src/index.ts\npackage.json\nREADME.md');
@@ -130,5 +132,81 @@ describe('AgentStateMachine', () => {
 
     const steps = await prisma.agentStep.findMany({ where: { runId } });
     expect(steps.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('emits state_changed events in order', async () => {
+    const emitter = new EventEmitter();
+    const events: AgentSSEEvent[] = [];
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e));
+
+    const sm = new AgentStateMachine(runId, prisma, mockClaude, mockMCP, emitter);
+    await sm.start();
+
+    const stateEvents = events
+      .filter((e) => e.type === 'state_changed')
+      .map((e) => (e as { type: 'state_changed'; state: string }).state);
+
+    expect(stateEvents).toEqual(['analyzing_repo', 'planning', 'waiting_for_plan_approval']);
+  });
+
+  it('emits step_started and step_completed for each step', async () => {
+    const emitter = new EventEmitter();
+    const events: AgentSSEEvent[] = [];
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e));
+
+    const sm = new AgentStateMachine(runId, prisma, mockClaude, mockMCP, emitter);
+    await sm.start();
+
+    const started = events.filter((e) => e.type === 'step_started').map((e) => (e as any).stepType);
+    const completed = events.filter((e) => e.type === 'step_completed').map((e) => (e as any).stepType);
+
+    expect(started).toEqual(['analyze_repo', 'generate_plan', 'save_plan']);
+    expect(completed).toEqual(['analyze_repo', 'generate_plan', 'save_plan']);
+  });
+
+  it('emits tool_called events for MCP tool calls', async () => {
+    const emitter = new EventEmitter();
+    const events: AgentSSEEvent[] = [];
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e));
+
+    const sm = new AgentStateMachine(runId, prisma, mockClaude, mockMCP, emitter);
+    await sm.start();
+
+    const toolEvents = events.filter((e) => e.type === 'tool_called');
+    expect(toolEvents.length).toBeGreaterThan(0);
+    const first = toolEvents[0] as { type: 'tool_called'; name: string; input: unknown; output: string };
+    expect(first.name).toBe('list_files');
+  });
+
+  it('emits run_completed with planJson on success', async () => {
+    const emitter = new EventEmitter();
+    const events: AgentSSEEvent[] = [];
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e));
+
+    const sm = new AgentStateMachine(runId, prisma, mockClaude, mockMCP, emitter);
+    await sm.start();
+
+    const completedEvent = events.find((e) => e.type === 'run_completed') as
+      | { type: 'run_completed'; planJson: unknown }
+      | undefined;
+    expect(completedEvent).toBeDefined();
+    expect(completedEvent?.planJson).not.toBeNull();
+  });
+
+  it('emits run_failed on error', async () => {
+    const emitter = new EventEmitter();
+    const events: AgentSSEEvent[] = [];
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e));
+
+    mockCallTool.mockRejectedValueOnce(new Error('mcp error'));
+
+    const sm = new AgentStateMachine(runId, prisma, mockClaude, mockMCP, emitter);
+    await expect(sm.start()).rejects.toThrow('mcp error');
+
+    const failedEvent = events.find((e) => e.type === 'run_failed') as
+      | { type: 'run_failed'; error: string }
+      | undefined;
+    expect(failedEvent).toBeDefined();
+    expect(failedEvent?.error).toContain('mcp error');
   });
 });

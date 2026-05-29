@@ -1,7 +1,16 @@
+import { EventEmitter } from 'node:events';
 import { PrismaClient } from '@prisma/client';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ClaudeService } from './claude-service.js';
 import type { MCPClientManager } from './mcp-client-manager.js';
+
+export type AgentSSEEvent =
+  | { type: 'state_changed'; state: string }
+  | { type: 'step_started'; stepType: string; description: string }
+  | { type: 'step_completed'; stepType: string; durationMs: number }
+  | { type: 'tool_called'; name: string; input: unknown; output: string }
+  | { type: 'run_completed'; planJson: unknown }
+  | { type: 'run_failed'; error: string }
 
 const PHASE_1_TOOLS: Anthropic.Tool[] = [
   {
@@ -46,17 +55,23 @@ const PHASE_1_TOOLS: Anthropic.Tool[] = [
 export class AgentStateMachine {
   private stepCounter = 0;
   private queue: Promise<void> = Promise.resolve();
+  private stepStartTimes = new Map<string, number>();
 
   constructor(
     private readonly runId: string,
     private readonly prisma: PrismaClient,
     private readonly claudeService: ClaudeService,
     private readonly mcpClientManager: MCPClientManager,
+    private readonly emitter?: EventEmitter,
   ) {}
 
   start(): Promise<void> {
     this.queue = this.queue.then(() => this.run());
     return this.queue;
+  }
+
+  private emit(event: AgentSSEEvent): void {
+    this.emitter?.emit('event', event);
   }
 
   private async run(): Promise<void> {
@@ -71,7 +86,15 @@ export class AgentStateMachine {
       await this.transition('analyzing_repo', 'analyze_repo', 'Analyzing repository structure');
       await this.mcpClientManager.start();
       mcpStarted = true;
-      const repoFiles = await this.mcpClientManager.callTool('list_files', {});
+
+      // Wrap tool executor to emit tool_called events
+      const tracingExecutor = async (name: string, args: Record<string, unknown>): Promise<string> => {
+        const output = await this.mcpClientManager.callTool(name, args);
+        this.emit({ type: 'tool_called', name, input: args, output });
+        return output;
+      };
+
+      const repoFiles = await tracingExecutor('list_files', {});
       await this.completeStep('analyze_repo');
 
       // analyzing_repo → planning
@@ -84,8 +107,7 @@ export class AgentStateMachine {
           },
         ],
         PHASE_1_TOOLS,
-        (name, args) =>
-          this.mcpClientManager.callTool(name, args as Record<string, unknown>),
+        tracingExecutor,
       );
       await this.completeStep('generate_plan');
 
@@ -97,8 +119,12 @@ export class AgentStateMachine {
         data: { planJson: lastMessage.content as object },
       });
       await this.completeStep('save_plan');
+
+      this.emit({ type: 'run_completed', planJson: lastMessage.content });
     } catch (err) {
-      await this.fail(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      await this.fail(message);
+      this.emit({ type: 'run_failed', error: message });
       throw err;
     } finally {
       if (mcpStarted) await this.mcpClientManager.stop().catch(() => {});
@@ -110,6 +136,7 @@ export class AgentStateMachine {
       where: { id: this.runId },
       data: { currentState: state },
     });
+    this.stepStartTimes.set(stepType, Date.now());
     await this.prisma.agentStep.create({
       data: {
         runId: this.runId,
@@ -119,13 +146,18 @@ export class AgentStateMachine {
         status: 'running',
       },
     });
+    this.emit({ type: 'state_changed', state });
+    this.emit({ type: 'step_started', stepType, description });
   }
 
   private async completeStep(stepType: string): Promise<void> {
+    const startTime = this.stepStartTimes.get(stepType) ?? Date.now();
+    const durationMs = Date.now() - startTime;
     await this.prisma.agentStep.updateMany({
       where: { runId: this.runId, stepType, status: 'running' },
       data: { status: 'completed', completedAt: new Date() },
     });
+    this.emit({ type: 'step_completed', stepType, durationMs });
   }
 
   private async fail(errorMessage: string): Promise<void> {
