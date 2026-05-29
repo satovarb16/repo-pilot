@@ -53,7 +53,7 @@ export function ConnectRepoDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setError(null) }}>
       <DialogTrigger render={<Button variant="outline" size="sm" className="w-full mt-2" />}>
         + Connect Repo
       </DialogTrigger>
