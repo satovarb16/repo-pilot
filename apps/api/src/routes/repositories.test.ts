@@ -48,10 +48,15 @@ describe('Repository routes', () => {
       });
 
       expect(response.statusCode).toBe(201);
-      const body = response.json<{ id: string; owner: string; name: string }>();
+      const body = response.json<{ id: string; owner: string; name: string; cloneUrl: string; cloneStatus: string; createdAt: string }>();
+      expect(typeof body.id).toBe('string');
       expect(body.owner).toBe('test-owner');
       expect(body.name).toBe('test-repo');
+      expect(body.cloneUrl).toBe('https://github.com/test-owner/test-repo');
+      expect(typeof body.cloneStatus).toBe('string');
+      expect(typeof body.createdAt).toBe('string');
       expect(body).not.toHaveProperty('encryptedToken');
+      expect(body).not.toHaveProperty('pat');
       createdRepoIds.push(body.id);
     });
 
