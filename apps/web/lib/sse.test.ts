@@ -86,4 +86,23 @@ describe('useAgentStream', () => {
     unmount()
     expect(MockEventSource.instances[0].closed).toBe(true)
   })
+
+  it('dispatches approval_required event to setPlanProposal', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'approval_required', approvalType: 'plan', planText: 'Step 1\nStep 2' }))
+    expect(useAppStore.getState().planProposal).toEqual({ planText: 'Step 1\nStep 2' })
+  })
+
+  it('dispatches edit_proposed event to addPendingEdit', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'edit_proposed', changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b' }))
+    expect(useAppStore.getState().pendingEdits).toHaveLength(1)
+    expect(useAppStore.getState().pendingEdits[0]).toMatchObject({
+      changeId: 'c1',
+      filePath: 'src/foo.ts',
+      diff: '--- a\n+++ b',
+    })
+  })
 })
