@@ -25,7 +25,12 @@ export const useAppStore = create<AppStore>()((set) => ({
 
   setRepos: (repos) => set({ repos }),
 
-  addRepo: (repo) => set((state) => ({ repos: [...state.repos, repo] })),
+  addRepo: (repo) =>
+    set((state) => ({
+      repos: state.repos.some((r) => r.id === repo.id)
+        ? state.repos
+        : [...state.repos, repo],
+    })),
 
   selectRepo: (id) =>
     set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle' }),

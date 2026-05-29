@@ -66,6 +66,23 @@ describe('AppStore', () => {
     expect(useAppStore.getState().traceEvents[0].state).toBe('state-1')
   })
 
+  it('setActiveRun sets activeRunId and runStatus to running', () => {
+    useAppStore.getState().setActiveRun('run-42')
+    expect(useAppStore.getState().activeRunId).toBe('run-42')
+    expect(useAppStore.getState().runStatus).toBe('running')
+  })
+
+  it('setRunStatus updates runStatus', () => {
+    useAppStore.getState().setRunStatus('completed')
+    expect(useAppStore.getState().runStatus).toBe('completed')
+  })
+
+  it('selectRepo(null) clears selectedRepoId', () => {
+    useAppStore.setState({ selectedRepoId: 'repo-1' })
+    useAppStore.getState().selectRepo(null)
+    expect(useAppStore.getState().selectedRepoId).toBeNull()
+  })
+
   it('clearTrace resets traceEvents, activeRunId, and runStatus', () => {
     useAppStore.setState({
       activeRunId: 'run-1',
