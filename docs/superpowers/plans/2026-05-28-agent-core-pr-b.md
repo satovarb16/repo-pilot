@@ -579,7 +579,7 @@ Create `packages/agent-core/src/claude-service.ts`:
 import Anthropic from '@anthropic-ai/sdk';
 import type { SecretRedactor } from './secret-redactor.js';
 
-const MAX_TOOL_ITERATIONS = 20;
+export const MAX_TOOL_ITERATIONS = 20;
 
 export class ClaudeRateLimitError extends Error {
   constructor() {
@@ -628,9 +628,12 @@ export class ClaudeService {
         `[ClaudeService] tokens: input=${response.usage.input_tokens} output=${response.usage.output_tokens}`,
       );
 
-      current.push({ role: 'assistant', content: response.content });
+      // Push assistant message only when the conversation continues — NOT unconditionally.
+      // Pushing before a throw (e.g. max_tokens, max iterations) would leave an orphaned
+      // assistant message with no tool result, creating an invalid Anthropic message sequence.
 
       if (response.stop_reason === 'end_turn') {
+        current.push({ role: 'assistant', content: response.content });
         return current;
       }
 
@@ -643,6 +646,8 @@ export class ClaudeService {
         if (toolIterations > MAX_TOOL_ITERATIONS) {
           throw new ClaudeMaxIterationsError();
         }
+
+        current.push({ role: 'assistant', content: response.content });
 
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
