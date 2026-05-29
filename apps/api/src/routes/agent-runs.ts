@@ -101,4 +101,79 @@ export async function agentRunsRoute(
       });
     },
   );
+
+  // Plan approval
+  const planApprovalBody = z.object({
+    action: z.enum(['approve', 'reject']),
+  });
+
+  app.post<{ Params: { runId: string } }>(
+    '/api/v1/agent/runs/:runId/approve-plan',
+    async (request, reply) => {
+      const result = planApprovalBody.safeParse(request.body);
+      if (!result.success) {
+        return reply.code(400).send({ error: result.error.flatten() });
+      }
+      const { runId } = request.params;
+      const run = await prisma.agentRun.findFirst({ where: { id: runId }, select: { id: true } });
+      if (!run) {
+        return reply.code(404).send({ error: 'Run not found' });
+      }
+      agentRunner.resolvePlanApproval(runId, result.data.action === 'approve');
+      return reply.send({ ok: true });
+    },
+  );
+
+  // File change approval — one at a time; resolves edit gate when all decided
+  const fileChangeBody = z.object({
+    action: z.enum(['approve', 'reject']),
+  });
+
+  app.patch<{ Params: { runId: string; changeId: string } }>(
+    '/api/v1/agent/runs/:runId/file-changes/:changeId',
+    async (request, reply) => {
+      const result = fileChangeBody.safeParse(request.body);
+      if (!result.success) {
+        return reply.code(400).send({ error: result.error.flatten() });
+      }
+
+      const { runId, changeId } = request.params;
+      const approved = result.data.action === 'approve';
+
+      // Verify the change belongs to this run
+      const fc = await prisma.fileChange.findFirst({
+        where: { id: changeId, runId },
+      });
+      if (!fc) {
+        return reply.code(404).send({ error: 'File change not found' });
+      }
+
+      if (fc.approved !== null) {
+        return reply.code(409).send({ error: 'File change already decided' });
+      }
+
+      // Record decision and atomically check if all edits are decided
+      const { remaining, allChanges } = await prisma.$transaction(async (tx) => {
+        await tx.fileChange.update({
+          where: { id: changeId },
+          data: { approved },
+        });
+        const remaining = await tx.fileChange.count({
+          where: { runId, approved: null },
+        });
+        const allChanges = remaining === 0
+          ? await tx.fileChange.findMany({ where: { runId } })
+          : [];
+        return { remaining, allChanges };
+      });
+
+      if (remaining === 0) {
+        const approvedIds = allChanges.filter((c) => c.approved === true).map((c) => c.id);
+        const rejectedIds = allChanges.filter((c) => c.approved === false).map((c) => c.id);
+        agentRunner.resolveEditApprovals(runId, { approved: approvedIds, rejected: rejectedIds });
+      }
+
+      return reply.send({ ok: true });
+    },
+  );
 }
