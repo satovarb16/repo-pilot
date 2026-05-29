@@ -98,9 +98,10 @@ export class AgentStateMachine {
       });
       await this.completeStep('save_plan');
     } catch (err) {
-      if (mcpStarted) await this.mcpClientManager.stop().catch(() => {});
       await this.fail(err instanceof Error ? err.message : String(err));
       throw err;
+    } finally {
+      if (mcpStarted) await this.mcpClientManager.stop().catch(() => {});
     }
   }
 
