@@ -1,10 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SecretRedactor } from './secret-redactor.js';
 
+const MAX_TOOL_ITERATIONS = 20;
+
 export class ClaudeRateLimitError extends Error {
   constructor() {
     super('Claude API rate limit exceeded — retried once, still failing');
     this.name = 'ClaudeRateLimitError';
+  }
+}
+
+export class ClaudeContextLimitError extends Error {
+  constructor() {
+    super('Claude context limit reached (max_tokens) — reduce input or increase max_tokens');
+    this.name = 'ClaudeContextLimitError';
+  }
+}
+
+export class ClaudeMaxIterationsError extends Error {
+  constructor() {
+    super(`Claude tool loop exceeded ${MAX_TOOL_ITERATIONS} iterations without end_turn`);
+    this.name = 'ClaudeMaxIterationsError';
   }
 }
 
@@ -25,6 +41,7 @@ export class ClaudeService {
     systemPrompt?: string,
   ): Promise<Anthropic.MessageParam[]> {
     const current = [...messages];
+    let toolIterations = 0;
 
     while (true) {
       const response = await this.callWithRetry(current, tools, systemPrompt);
@@ -39,7 +56,16 @@ export class ClaudeService {
         return current;
       }
 
+      if (response.stop_reason === 'max_tokens') {
+        throw new ClaudeContextLimitError();
+      }
+
       if (response.stop_reason === 'tool_use') {
+        toolIterations++;
+        if (toolIterations > MAX_TOOL_ITERATIONS) {
+          throw new ClaudeMaxIterationsError();
+        }
+
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
         for (const block of response.content) {

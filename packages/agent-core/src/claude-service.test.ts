@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SecretRedactor } from './secret-redactor.js';
-import { ClaudeService, ClaudeRateLimitError } from './claude-service.js';
+import {
+  ClaudeService,
+  ClaudeRateLimitError,
+  ClaudeContextLimitError,
+  ClaudeMaxIterationsError,
+} from './claude-service.js';
 
 vi.mock('@anthropic-ai/sdk', () => {
   const mockCreate = vi.fn();
@@ -12,15 +17,19 @@ vi.mock('@anthropic-ai/sdk', () => {
       this.name = 'APIError';
     }
   }
+  class APIConnectionError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'APIConnectionError';
+    }
+  }
   const MockAnthropic = vi.fn().mockImplementation(() => ({
     messages: { create: mockCreate },
   }));
   // Attach APIError as a static property so `Anthropic.APIError` works in the implementation
   (MockAnthropic as any).APIError = APIError;
-  return {
-    default: MockAnthropic,
-    APIError,
-  };
+  (MockAnthropic as any).APIConnectionError = APIConnectionError;
+  return { default: MockAnthropic, APIError, APIConnectionError };
 });
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -33,6 +42,14 @@ function makeEndTurnResponse(text: string) {
   return {
     stop_reason: 'end_turn',
     content: [{ type: 'text', text }],
+    usage: { input_tokens: 10, output_tokens: 5 },
+  };
+}
+
+function makeToolUseResponse(id: string, name: string, input: Record<string, unknown>) {
+  return {
+    stop_reason: 'tool_use',
+    content: [{ type: 'tool_use', id, name, input }],
     usage: { input_tokens: 10, output_tokens: 5 },
   };
 }
@@ -131,7 +148,7 @@ describe('ClaudeService', () => {
     vi.useRealTimers();
   });
 
-  it('throws on unexpected stop_reason', async () => {
+  it('throws ClaudeContextLimitError on max_tokens stop_reason', async () => {
     getMockCreate(service).mockResolvedValueOnce({
       stop_reason: 'max_tokens',
       content: [{ type: 'text', text: 'Truncated.' }],
@@ -140,7 +157,64 @@ describe('ClaudeService', () => {
 
     await expect(
       service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
-    ).rejects.toThrow('Unexpected stop_reason: max_tokens');
+    ).rejects.toThrow(ClaudeContextLimitError);
+  });
+
+  it('throws on unknown stop_reason (e.g. stop_sequence)', async () => {
+    getMockCreate(service).mockResolvedValueOnce({
+      stop_reason: 'stop_sequence',
+      content: [{ type: 'text', text: 'Stopped.' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
+    ).rejects.toThrow('Unexpected stop_reason: stop_sequence');
+  });
+
+  it('throws ClaudeMaxIterationsError after 20 tool calls without end_turn', async () => {
+    const mockCreate = getMockCreate(service);
+    mockCreate.mockResolvedValue(makeToolUseResponse('tu-x', 'list_files', {}));
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Go' }], [], async () => 'result'),
+    ).rejects.toThrow(ClaudeMaxIterationsError);
+  });
+
+  it('propagates network error without retry (fail fast)', async () => {
+    const NetworkError = (Anthropic as any).APIConnectionError;
+    getMockCreate(service).mockRejectedValue(new NetworkError('Connection refused'));
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
+    ).rejects.toThrow('Connection refused');
+
+    expect(getMockCreate(service)).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates 500 server error without retry (fail fast)', async () => {
+    const ServerError = (Anthropic as any).APIError;
+    getMockCreate(service).mockRejectedValue(new ServerError(500, 'Internal Server Error'));
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
+    ).rejects.toThrow('Internal Server Error');
+
+    expect(getMockCreate(service)).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates tool executor error', async () => {
+    getMockCreate(service).mockResolvedValueOnce(
+      makeToolUseResponse('tu-1', 'read_file', { path: 'src/index.ts' }),
+    );
+
+    await expect(
+      service.sendWithTools(
+        [{ role: 'user', content: 'Read it' }],
+        [],
+        async () => { throw new Error('MCP spawn failed'); },
+      ),
+    ).rejects.toThrow('MCP spawn failed');
   });
 
   it('logs token usage after each API call', async () => {
