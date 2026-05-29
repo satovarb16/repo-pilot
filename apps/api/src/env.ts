@@ -6,6 +6,7 @@ export const envSchema = z.object({
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
   PORT: z.coerce.number().default(3001),
   REPO_ROOT: z.string().default('/tmp/repo-pilot/clones'),
+  MCP_SERVER_PATH: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

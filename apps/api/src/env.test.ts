@@ -7,6 +7,7 @@ describe('envSchema', () => {
       DATABASE_URL: 'postgresql://localhost/test',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(true);
   });
@@ -16,6 +17,7 @@ describe('envSchema', () => {
       DATABASE_URL: 'postgresql://localhost/test',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -28,6 +30,7 @@ describe('envSchema', () => {
       DATABASE_URL: 'postgresql://localhost/test',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     if (result.success) {
       expect(result.data.REPO_ROOT).toBe('/tmp/repo-pilot/clones');
@@ -38,6 +41,7 @@ describe('envSchema', () => {
     const result = envSchema.safeParse({
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(false);
   });
@@ -47,6 +51,7 @@ describe('envSchema', () => {
       DATABASE_URL: '',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(false);
   });
@@ -55,6 +60,7 @@ describe('envSchema', () => {
     const result = envSchema.safeParse({
       DATABASE_URL: 'postgresql://localhost/test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(false);
   });
@@ -63,8 +69,28 @@ describe('envSchema', () => {
     const result = envSchema.safeParse({
       DATABASE_URL: 'postgresql://localhost/test',
       ANTHROPIC_API_KEY: 'sk-ant-test',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects when MCP_SERVER_PATH is missing', () => {
+    const result = envSchema.safeParse({
+      DATABASE_URL: 'postgresql://localhost/test',
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+      TOKEN_ENCRYPTION_KEY: 'test-key',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a valid MCP_SERVER_PATH', () => {
+    const result = envSchema.safeParse({
+      DATABASE_URL: 'postgresql://localhost/test',
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+      TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
+    });
+    expect(result.success).toBe(true);
   });
 });
 
@@ -74,6 +100,7 @@ describe('parseEnv', () => {
       DATABASE_URL: 'postgresql://localhost/test',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       TOKEN_ENCRYPTION_KEY: 'test-key',
+      MCP_SERVER_PATH: '/some/path/index.js',
     });
     expect(result.DATABASE_URL).toBe('postgresql://localhost/test');
     expect(result.PORT).toBe(3001);
