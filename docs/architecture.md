@@ -983,15 +983,36 @@ repo-pilot/
 - Initial Prisma migration applied (`20260528225129_init`)
 - 37 tests, all passing, strict TDD
 
-#### Pending — MCP Server and Agent Core
+#### PR A ✓ COMPLETE — MCP Server (PR #7)
 - `repo-agent-mcp-server` package with MCP TypeScript SDK (stdio transport)
-- Tools: `list_files`, `search_repo`, `read_file`, `get_github_issue`, `get_diff`
-- Resources: `repo://README.md`, `repo://package.json`, `repo://open-issues`
-- Prompts: `analyze_repo_prompt`, `fix_bug_prompt`
-- `AgentStateMachine` (idle → analyzing_repo → planning → waiting_for_plan_approval), `ClaudeService`, `MCPClientManager`
-- `GitHubService` for clone and issue fetch
-- `POST /api/agent/runs`, `GET /api/agent/runs/:id`
-- Frontend: repo connection card, task composer, step timeline, basic plan card
+- Tools: `list_files`, `read_file`, `search_repo`, `get_diff`, `get_github_issue`
+- Path blocklist and `PathValidator` integration on every tool call
+- Integration tests against a real local repo fixture
+
+#### PR B ✓ COMPLETE — Agent Core (merged via PR #10)
+- `MCPClientManager`: spawns MCP server as child process over stdio, wraps all tool calls with logging and error handling
+- `ClaudeService`: Anthropic SDK wrapper with tool use loop, `SecretRedactor` applied to all tool outputs, rate limit / context limit / max-iterations error types
+- `AgentStateMachine`: full state machine with `EventEmitter` integration for SSE trace events; states: idle → analyzing_repo → planning → waiting_for_plan_approval → editing → waiting_for_edit_approval → waiting_for_test_run_approval → running_tests → reviewing → waiting_for_pr_approval → opening_pr → complete; failed states: repairing → failed
+- `GitHubService`: `cloneRepo` (delete + fresh clone), `fetchIssue`, `createBranch` via simple-git + Octokit
+- All services exported from `@repo-pilot/agent-core`
+
+#### PR C1 ✓ COMPLETE — Backend API Routes (PR #11)
+- `MCP_SERVER_PATH` added to API env schema
+- Dev user seeding on API startup (`DEV_USER_ID` constant, `ensureDevUser()`)
+- `AgentRunner` service: per-run `EventEmitter` map, fire-and-forget `sm.start()`
+- `POST /api/v1/repositories` + `GET /api/v1/repositories` (PAT encrypted at rest, never returned)
+- `POST /api/v1/agent/runs` (create run, fire-and-forget clone + agent start) + `GET /api/v1/agent/runs/:id/stream` (SSE via `reply.hijack()`)
+- All routes wired in `apps/api/src/index.ts`
+- 25 tests passing; testable via curl/Postman
+
+#### PR C2 🔲 IN PROGRESS — Frontend
+- Zustand store (repos, selectedRepoId, activeRunId, traceEvents, runStatus)
+- `ConnectRepoDialog` (shadcn Dialog — fetches `githubRepoId` from GitHub API before submit)
+- `TaskComposer` (textarea + Start Run button)
+- `TraceLog` (monospace SSE event log, auto-scroll, color by event type)
+- `lib/api.ts` (typed fetch wrapper), `lib/sse.ts` (`useAgentStream` hook)
+- Next.js proxy rewrite for `/api/v1/*` → `http://localhost:3001/api/v1/*`
+- Store + API + SSE hook tests (Vitest)
 
 **Acceptance criteria:** Connect AlgoArena repo. Submit "explain the structure of this repo." Agent uses real MCP tools (`list_files`, `read_file`, `search_repo`), produces a plan, plan appears in UI. Tool trace shows real MCP calls with inputs and outputs.
 
@@ -1014,6 +1035,11 @@ repo-pilot/
 **Backend work:** Approval state machine integration, SSE endpoint, `propose_file_edit` logic, `write_file` with approval validation.
 
 **Frontend work:** SSE client hook, diff viewer (react-diff-viewer-continued), approval gate card, per-file approve/reject buttons.
+
+**Deferred from Phase 1 (PR C2):**
+- Approval gates UI (plan / edit / test-run / PR approval cards)
+- Diff viewer in right panel (`react-diff-viewer-continued`)
+- Trace display upgraded from monospace log to grouped-by-step cards (Option C from C2 brainstorming)
 
 **Security work:** `write_file` double-checks approval in DB before writing, even if called directly.
 
@@ -1038,6 +1064,12 @@ repo-pilot/
 **Backend work:** `SandboxRunner` class, Docker SDK integration (`dockerode`), test command allowlist, timeout enforcement.
 
 **Frontend work:** Test output panel with terminal-style display, test approval card, pass/fail badge.
+
+**Deferred from Phase 1 (PR C2):**
+- Navigation upgraded from single-panel state machine to tabs per run (Option C from C2 brainstorming) — center panel becomes tabbed when multiple runs exist
+- Run history list in sidebar (past runs per repo with status badges)
+- Real-time run status badge per run in sidebar
+- Error toast system (replaces inline errors from Phase 1)
 
 **Security work:** Docker `--network none` enforced, volume mounts restricted, container destroyed after run, timeout kills container.
 
@@ -1085,6 +1117,11 @@ repo-pilot/
 **Backend work:** Token counting from Claude API responses, complete trace endpoint, error recovery for common failures.
 
 **Frontend work:** All polish items from the frontend spec, security page, responsive layout, loading skeletons, toast notifications.
+
+**Deferred from Phase 1 (PR C2):**
+- Component tests with Playwright E2E (deferred until UI is stable)
+- PAT rotation / GitHub OAuth App flow (replaces PAT form in `ConnectRepoDialog`)
+- Auto-reconnect SSE after server restart (EventSource reconnect with exponential backoff)
 
 **MCP work:** Remaining prompts: `write_tests_prompt`, `review_diff_prompt`, `create_pr_summary_prompt`.
 
