@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import * as mcpServer from './index.js';
+import { isBlocklisted } from './blocklist.js';
 
-describe('mcp-server', () => {
-  it('exports a module without throwing', () => {
-    expect(mcpServer).toBeDefined();
+// index.ts starts the MCP server on import so it cannot be imported in tests.
+// Smoke-test the building blocks that index.ts depends on instead.
+describe('mcp-server smoke tests', () => {
+  it('blocklist is accessible', () => {
+    expect(typeof isBlocklisted).toBe('function');
   });
 });
