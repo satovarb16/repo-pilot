@@ -39,8 +39,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system diagram, 
 
 | Layer | Technologies |
 |---|---|
-| Frontend | Next.js 14 App Router, TypeScript, Tailwind CSS, shadcn/ui, react-diff-viewer-continued |
-| Backend | Fastify 4, TypeScript, Prisma, PostgreSQL 15 |
+| Frontend | Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, react-diff-viewer-continued |
+| Backend | Fastify 4, TypeScript, Prisma, PostgreSQL 16 |
 | Agent | Anthropic SDK (Claude), MCP TypeScript SDK |
 | GitHub | Octokit REST |
 | Infra | Turborepo, pnpm workspaces, Docker |
@@ -53,6 +53,17 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system diagram, 
 - Hard-coded blocklist of files never read: `.env*`, `*.pem`, `*.key`, `id_rsa`, `secrets.json`, and others
 - Docker sandbox enforces `--network none`, restricted volume mounts, a test command allowlist, and a 120-second timeout
 - Agent never commits to `main` or `master`; all branches use the `repo-pilot/{run-id}` prefix
+
+## Implementation Status
+
+| Phase | Description | Status |
+|---|---|---|
+| 0 | Monorepo scaffold, DB, layout shell | ✅ Complete |
+| 1 | MCP server, agent loop, GitHub connect, frontend | ✅ Complete |
+| 2 | File edit proposals, diff viewer, approval gates | 🔲 Next |
+| 3 | Docker-sandboxed test runner + repair loop | 🔲 Planned |
+| 4 | Branch, commit, PR integration | 🔲 Planned |
+| 5 | Trace viewer, security hardening, demo polish | 🔲 Planned |
 
 ## Documentation
 
