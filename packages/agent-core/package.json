@@ -16,9 +16,11 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@octokit/rest": "^21.0.0",
     "@prisma/client": "^5",
+    "diff": "^9.0.0",
     "simple-git": "^3.0.0"
   },
   "devDependencies": {
+    "@types/diff": "^8.0.0",
     "@types/node": "^20",
     "typescript": "*",
     "vitest": "*"
