@@ -983,14 +983,21 @@ repo-pilot/
 - Initial Prisma migration applied (`20260528225129_init`)
 - 37 tests, all passing, strict TDD
 
-#### Pending — MCP Server and Agent Core
-- `repo-agent-mcp-server` package with MCP TypeScript SDK (stdio transport)
-- Tools: `list_files`, `search_repo`, `read_file`, `get_github_issue`, `get_diff`
-- Resources: `repo://README.md`, `repo://package.json`, `repo://open-issues`
-- Prompts: `analyze_repo_prompt`, `fix_bug_prompt`
-- `AgentStateMachine` (idle → analyzing_repo → planning → waiting_for_plan_approval), `ClaudeService`, `MCPClientManager`
-- `GitHubService` for clone and issue fetch
-- `POST /api/agent/runs`, `GET /api/agent/runs/:id`
+#### PR #7 ✓ COMPLETE — MCP Server (read tools)
+- `@repo-pilot/mcp-server`: MCP TypeScript SDK, stdio transport, spawned as child process
+- Tools: `list_files`, `read_file`, `search_repo`, `get_diff`, `get_github_issue`
+- Security: blocklist applied on every file read and search walk (`.env*`, `*.pem`, `*.key`, etc.)
+- 41 tests, all passing, strict TDD
+
+#### PR #10 ✓ COMPLETE — Agent Core
+- `MCPClientManager`: spawns MCP server over stdio, routes tool calls, 30s timeout → `MCPTimeoutError`
+- `ClaudeService`: Anthropic SDK wrapper, tool loop with `SecretRedactor` on every tool result, retry on 429 → `ClaudeRateLimitError`; fail-fast on network/500/timeout; `ClaudeContextLimitError` on `max_tokens`; `ClaudeMaxIterationsError` after 20 tool iterations
+- `AgentStateMachine`: idle → analyzing_repo → planning → waiting_for_plan_approval; all transitions persisted to PostgreSQL; error path sets `currentState: 'failed'` with `errorMessage` on `AgentStep`
+- 58 tests, all passing, strict TDD (AgentStateMachine uses real PostgreSQL)
+
+#### Pending — PR C: GitHub Connect + API Routes
+- `GitHubService`: clone repo via Octokit, create branch, fetch issue
+- `POST /api/agent/runs`, `GET /api/agent/runs/:id/stream` (SSE)
 - Frontend: repo connection card, task composer, step timeline, basic plan card
 
 **Acceptance criteria:** Connect AlgoArena repo. Submit "explain the structure of this repo." Agent uses real MCP tools (`list_files`, `read_file`, `search_repo`), produces a plan, plan appears in UI. Tool trace shows real MCP calls with inputs and outputs.
