@@ -70,3 +70,42 @@ export async function resolveEdit(
     body: JSON.stringify({ action }),
   })
 }
+
+export async function approveTestRun(runId: string): Promise<void> {
+  await request(`/agent/runs/${runId}/approve-test-run`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'approve' }),
+  })
+}
+
+export async function rejectTestRun(runId: string): Promise<void> {
+  await request(`/agent/runs/${runId}/approve-test-run`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'reject' }),
+  })
+}
+
+import type { TestRunView } from './types'
+
+export async function fetchTestResults(runId: string): Promise<TestRunView[]> {
+  const data = await request<{ testRuns: Array<{
+    id: string
+    command: string
+    status: string
+    exitCode: number | null
+    stdout: string
+    stderr: string
+    durationMs: number | null
+    sandboxed?: boolean
+  }> }>(`/agent/runs/${runId}/test-results`)
+  return data.testRuns.map((r) => ({
+    id: r.id,
+    command: r.command,
+    status: (r.status === 'passed' ? 'passed' : r.status === 'failed' ? 'failed' : 'running') as TestRunView['status'],
+    exitCode: r.exitCode,
+    stdout: r.stdout,
+    stderr: r.stderr,
+    durationMs: r.durationMs,
+    sandboxed: r.sandboxed ?? true,
+  }))
+}
