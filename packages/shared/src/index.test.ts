@@ -180,3 +180,58 @@ describe('isApprovalStatus', () => {
     expect(isApprovalStatus(null)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// D1-1 — Phase 4 SSE type extensions
+// ---------------------------------------------------------------------------
+describe('AgentSSEEvent Phase 4 PR variants', () => {
+  it('approval_required with approvalType pr is a valid union member', () => {
+    const e: AgentSSEEvent = {
+      type: 'approval_required',
+      approvalType: 'pr',
+      prTitle: 'repo-pilot: my task',
+      prBody: 'description',
+    };
+    expect(e.type).toBe('approval_required');
+    expect((e as { approvalType: string }).approvalType).toBe('pr');
+  });
+
+  it('pr_opened is a valid union member', () => {
+    const e: AgentSSEEvent = {
+      type: 'pr_opened',
+      prUrl: 'https://github.com/owner/repo/pull/42',
+      prNumber: 42,
+    };
+    expect(e.type).toBe('pr_opened');
+    expect((e as { prNumber: number }).prNumber).toBe(42);
+  });
+
+  it('run_cancelled is a valid union member', () => {
+    const e: AgentSSEEvent = { type: 'run_cancelled' };
+    expect(e.type).toBe('run_cancelled');
+  });
+
+  it('run_completed accepts optional prUrl without breaking existing usage', () => {
+    // without prUrl — backward compatible
+    const e1: AgentSSEEvent = { type: 'run_completed', planJson: {} };
+    expect(e1.type).toBe('run_completed');
+
+    // with prUrl — new additive field
+    const e2: AgentSSEEvent = {
+      type: 'run_completed',
+      planJson: {},
+      prUrl: 'https://github.com/owner/repo/pull/42',
+    };
+    expect((e2 as { prUrl?: string }).prUrl).toBe('https://github.com/owner/repo/pull/42');
+  });
+});
+
+describe('AgentRunStatus includes cancelled', () => {
+  it('has cancelled as a valid status', () => {
+    expect(AgentRunStatus.CANCELLED).toBe('cancelled');
+  });
+
+  it('isAgentRunStatus returns true for cancelled', () => {
+    expect(isAgentRunStatus('cancelled')).toBe(true);
+  });
+});

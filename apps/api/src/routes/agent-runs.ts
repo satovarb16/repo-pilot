@@ -16,6 +16,7 @@ interface AgentRunsRouteOptions {
   encryption: EncryptionService;
   agentRunner: AgentRunner & {
     resolveTestRunApproval?: (runId: string, approved: boolean) => void;
+    resolvePRApproval?: (runId: string, approved: boolean) => void;
   };
   githubService: GitHubService;
 }
@@ -60,9 +61,10 @@ export async function agentRunsRoute(
     agentRunner.register(runId);
 
     // Fire and forget: clone repo then start agent loop
+    // D1-10: token threaded explicitly into start() — never persisted beyond encrypted column
     ;(async () => {
       const repoPath = await githubService.cloneRepo(repository.cloneUrl, repository.id, decryptedToken);
-      await agentRunner.start(runId, repoPath);
+      await agentRunner.start(runId, repoPath, decryptedToken, repository.owner, repository.name);
     })().catch(() => {
       // Errors surface via EventEmitter as run_failed
     });
@@ -166,6 +168,49 @@ export async function agentRunsRoute(
         orderBy: { createdAt: 'asc' },
       });
       return reply.send({ testRuns });
+    },
+  );
+
+  // D1-11: PR approval routes — 200 on correct state; 409 on wrong state; 404 on unknown run
+  app.post<{ Params: { runId: string } }>(
+    '/api/v1/agent/runs/:runId/approve-pr',
+    async (request, reply) => {
+      const { runId } = request.params;
+      const run = await prisma.agentRun.findFirst({
+        where: { id: runId },
+        select: { id: true, currentState: true },
+      });
+      if (!run) {
+        return reply.code(404).send({ error: 'Run not found' });
+      }
+      if (run.currentState !== 'waiting_for_pr_approval') {
+        return reply.code(409).send({
+          error: `Run is in state '${run.currentState}', expected 'waiting_for_pr_approval'`,
+        });
+      }
+      agentRunner.resolvePRApproval?.(runId, true);
+      return reply.send({ ok: true });
+    },
+  );
+
+  app.post<{ Params: { runId: string } }>(
+    '/api/v1/agent/runs/:runId/reject-pr',
+    async (request, reply) => {
+      const { runId } = request.params;
+      const run = await prisma.agentRun.findFirst({
+        where: { id: runId },
+        select: { id: true, currentState: true },
+      });
+      if (!run) {
+        return reply.code(404).send({ error: 'Run not found' });
+      }
+      if (run.currentState !== 'waiting_for_pr_approval') {
+        return reply.code(409).send({
+          error: `Run is in state '${run.currentState}', expected 'waiting_for_pr_approval'`,
+        });
+      }
+      agentRunner.resolvePRApproval?.(runId, false);
+      return reply.send({ ok: true });
     },
   );
 

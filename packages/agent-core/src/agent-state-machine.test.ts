@@ -679,3 +679,286 @@ describe('AgentStateMachine Phase 3 — test run flow', () => {
     expect((sm as any).repairCount).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// D1-8 + D1-9 — PR approval gate and opening_pr execution sequence
+// These tests use fully mocked GitHubService so no real git/Octokit calls are made
+// ---------------------------------------------------------------------------
+
+/** Minimal GitHubService stub — all methods return happy defaults */
+const makeGitHubService = (overrides?: {
+  getDefaultBranch?: ReturnType<typeof vi.fn>;
+  commitChanges?: ReturnType<typeof vi.fn>;
+  pushBranch?: ReturnType<typeof vi.fn>;
+  openPullRequest?: ReturnType<typeof vi.fn>;
+  deleteBranch?: ReturnType<typeof vi.fn>;
+  createBranch?: ReturnType<typeof vi.fn>;
+}) => ({
+  cloneRepo: vi.fn(),
+  createBranch: overrides?.createBranch ?? vi.fn().mockResolvedValue(undefined),
+  getDefaultBranch: overrides?.getDefaultBranch ?? vi.fn().mockResolvedValue('main'),
+  commitChanges: overrides?.commitChanges ?? vi.fn().mockResolvedValue({ commitSha: 'sha123' }),
+  pushBranch: overrides?.pushBranch ?? vi.fn().mockResolvedValue(undefined),
+  openPullRequest:
+    overrides?.openPullRequest ??
+    vi.fn().mockResolvedValue({ url: 'https://github.com/o/r/pull/1', number: 1 }),
+  deleteBranch: overrides?.deleteBranch ?? vi.fn().mockResolvedValue(undefined),
+})
+
+/** Build a full SM with PR approval params */
+function makeSMWithPR(opts: {
+  waitForPRApproval: () => Promise<boolean>;
+  githubService?: ReturnType<typeof makeGitHubService>;
+  emitter?: EventEmitter;
+}) {
+  return new AgentStateMachine(
+    'run-1',
+    makePrisma() as never,
+    makeClaude() as never,
+    makeMCP() as never,
+    '/tmp/repo',
+    vi.fn().mockResolvedValue(true),       // waitForPlanApproval
+    vi.fn().mockResolvedValue({ approved: [], rejected: [] }), // waitForEditApprovals
+    makeMockSandboxRunner() as never,
+    'npm test',
+    vi.fn().mockResolvedValue(true),       // waitForTestRunApproval (approve tests)
+    opts.emitter,
+    opts.waitForPRApproval,
+    opts.githubService as never ?? makeGitHubService() as never,
+    'test-github-token',
+    'test-owner',
+    'test-repo',
+  )
+}
+
+describe('AgentStateMachine PR approval gate (D1-8)', () => {
+  it('transitions to waiting_for_pr_approval after reviewing with passing tests', async () => {
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    let resolveApproval!: (v: boolean) => void
+    const waitForPRApproval = vi.fn().mockImplementation(
+      () => new Promise<boolean>((res) => { resolveApproval = res }),
+    )
+
+    const sm = makeSMWithPR({ waitForPRApproval, emitter })
+
+    // Start async, then resolve PR approval
+    const runPromise = sm.start()
+    await vi.waitFor(() => expect(waitForPRApproval).toHaveBeenCalled(), { timeout: 5000 })
+    resolveApproval(true)
+    await runPromise
+
+    expect(states).toContain('waiting_for_pr_approval')
+  })
+
+  it('emits approval_required with approvalType pr when entering waiting_for_pr_approval', async () => {
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    let resolveApproval!: (v: boolean) => void
+    const waitForPRApproval = vi.fn().mockImplementation(
+      () => new Promise<boolean>((res) => { resolveApproval = res }),
+    )
+
+    const sm = makeSMWithPR({ waitForPRApproval, emitter })
+    const runPromise = sm.start()
+    await vi.waitFor(() => expect(waitForPRApproval).toHaveBeenCalled(), { timeout: 5000 })
+    resolveApproval(true)
+    await runPromise
+
+    const prApprovalEvent = events.find(
+      (e) => e.type === 'approval_required' && (e as any).approvalType === 'pr',
+    )
+    expect(prApprovalEvent).toBeDefined()
+    expect((prApprovalEvent as any).prTitle).toBeDefined()
+    expect((prApprovalEvent as any).prBody).toBeDefined()
+  })
+
+  it('transitions to cancelled and emits run_cancelled when PR is rejected', async () => {
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+      events.push(e)
+    })
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(false),
+      emitter,
+    })
+
+    await sm.start()
+
+    expect(states).toContain('cancelled')
+    expect(events.some((e) => e.type === 'run_cancelled')).toBe(true)
+    // cancelled is terminal — no 'opening_pr' state
+    expect(states).not.toContain('opening_pr')
+  })
+
+  it('cancelled is terminal — no further state transitions after cancelled', async () => {
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(false),
+      emitter,
+    })
+
+    await sm.start()
+
+    const cancelledIdx = states.indexOf('cancelled')
+    expect(cancelledIdx).toBeGreaterThanOrEqual(0)
+    // No states come after cancelled
+    expect(states.slice(cancelledIdx + 1)).toHaveLength(0)
+  })
+})
+
+describe('AgentStateMachine opening_pr execution sequence (D1-9)', () => {
+  it('full happy path: opening_pr → complete, emits pr_opened and run_completed with prUrl', async () => {
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+      events.push(e)
+    })
+
+    const gh = makeGitHubService()
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(true),
+      githubService: gh,
+      emitter,
+    })
+
+    await sm.start()
+
+    expect(states).toContain('opening_pr')
+    expect(states).toContain('complete')
+    const prOpened = events.find((e) => e.type === 'pr_opened')
+    expect(prOpened).toBeDefined()
+    expect((prOpened as any).prUrl).toBe('https://github.com/o/r/pull/1')
+    expect((prOpened as any).prNumber).toBe(1)
+    const runCompleted = events.find((e) => e.type === 'run_completed')
+    expect((runCompleted as any).prUrl).toBe('https://github.com/o/r/pull/1')
+  })
+
+  it('calls createBranch → commitChanges → pushBranch → openPullRequest in sequence on approve', async () => {
+    const gh = makeGitHubService()
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(true),
+      githubService: gh,
+    })
+
+    await sm.start()
+
+    expect(gh.createBranch).toHaveBeenCalled()
+    expect(gh.commitChanges).toHaveBeenCalled()
+    expect(gh.pushBranch).toHaveBeenCalled()
+    expect(gh.openPullRequest).toHaveBeenCalled()
+  })
+
+  it('transitions to failed when commitChanges throws; openPullRequest NOT called', async () => {
+    const gh = makeGitHubService({
+      commitChanges: vi.fn().mockRejectedValue(new Error('commit failed')),
+    })
+
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(true),
+      githubService: gh,
+      emitter,
+    })
+
+    await expect(sm.start()).rejects.toThrow('commit failed')
+    expect(states).toContain('failed')
+    expect(gh.openPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('transitions to failed when pushBranch throws; openPullRequest NOT called', async () => {
+    const gh = makeGitHubService({
+      pushBranch: vi.fn().mockRejectedValue(new Error('push failed')),
+    })
+
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(true),
+      githubService: gh,
+      emitter,
+    })
+
+    await expect(sm.start()).rejects.toThrow('push failed')
+    expect(states).toContain('failed')
+    expect(gh.openPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('deleteBranch NOT called on rejection when branch was never pushed', async () => {
+    const gh = makeGitHubService()
+
+    const sm = makeSMWithPR({
+      waitForPRApproval: vi.fn().mockResolvedValue(false),
+      githubService: gh,
+    })
+
+    await sm.start()
+
+    // branchPushed is false (push never happened since approval was rejected before opening_pr)
+    expect(gh.deleteBranch).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D1-13 — Security: token never surfaces in SSE payloads
+// ---------------------------------------------------------------------------
+describe('security invariants (D1-13)', () => {
+  it('no SSE event payload contains the PAT string', async () => {
+    const TEST_PAT = 'ghp_supersecrettoken1234567890abcdef'
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      makePrisma() as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+      vi.fn().mockResolvedValue(true),
+      makeGitHubService() as never,
+      TEST_PAT,
+      'owner',
+      'repo',
+    )
+
+    await sm.start()
+
+    // Serialize all events and assert the PAT never appears
+    const allEventJson = JSON.stringify(events)
+    expect(allEventJson).not.toContain(TEST_PAT)
+  })
+})
