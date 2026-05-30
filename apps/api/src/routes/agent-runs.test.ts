@@ -17,6 +17,7 @@ const agentRunner = {
   resolvePlanApproval: vi.fn(),
   resolveEditApprovals: vi.fn(),
   resolveTestRunApproval: vi.fn(),
+  resolvePRApproval: vi.fn(),
 };
 
 describe('Agent run routes', () => {
@@ -654,6 +655,152 @@ describe('GET /api/v1/agent/runs/:id/test-results', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/agent/runs/nonexistent-run/test-results',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D1-11 — POST /approve-pr and /reject-pr routes
+// ---------------------------------------------------------------------------
+describe('POST /api/v1/agent/runs/:runId/approve-pr and reject-pr', () => {
+  let app: FastifyInstance
+  let prRepoId: string
+  const prRunIds = ['run-pr-1', 'run-pr-2', 'run-pr-3', 'run-pr-4']
+
+  beforeEach(() => vi.clearAllMocks())
+
+  beforeAll(async () => {
+    const rawKey = process.env.TOKEN_ENCRYPTION_KEY ?? ''
+    const encryptionKey = /^[0-9a-fA-F]{64}$/.test(rawKey) ? rawKey : '0'.repeat(64)
+    const encryption = new EncryptionService(encryptionKey)
+
+    await ensureDevUser(prisma)
+
+    const repo = await prisma.repository.create({
+      data: {
+        userId: DEV_USER_ID,
+        githubRepoId: 77778,
+        owner: 'test-owner',
+        name: 'test-repo-pr-approval',
+        cloneUrl: 'https://github.com/test-owner/test-repo-pr-approval',
+        encryptedToken: encryption.encrypt('test-pat'),
+      },
+    })
+    prRepoId = repo.id
+
+    for (const runId of prRunIds) {
+      await prisma.agentRun.upsert({
+        where: { id: runId },
+        create: {
+          id: runId,
+          userId: DEV_USER_ID,
+          repoId: prRepoId,
+          taskDescription: 'test',
+          status: 'running',
+          currentState: 'waiting_for_pr_approval',
+        },
+        update: {},
+      })
+    }
+
+    app = Fastify()
+    await app.register(agentRunsRoute, {
+      prisma,
+      encryption,
+      agentRunner: agentRunner as unknown as AgentRunner,
+      githubService: { cloneRepo: vi.fn() } as unknown as GitHubService,
+    })
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    for (const runId of prRunIds) {
+      await prisma.agentRun.deleteMany({ where: { id: runId } })
+    }
+    await prisma.repository.deleteMany({ where: { id: prRepoId } })
+    await app.close()
+  })
+
+  it('approve-pr returns 200 and calls resolvePRApproval(true)', async () => {
+    const runId = 'run-pr-1'
+    const spy = vi.spyOn(agentRunner, 'resolvePRApproval')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${runId}/approve-pr`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(spy).toHaveBeenCalledWith(runId, true)
+  })
+
+  it('reject-pr returns 200 and calls resolvePRApproval(false)', async () => {
+    const runId = 'run-pr-2'
+    const spy = vi.spyOn(agentRunner, 'resolvePRApproval')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${runId}/reject-pr`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(spy).toHaveBeenCalledWith(runId, false)
+  })
+
+  it('approve-pr returns 409 when run is not in waiting_for_pr_approval state', async () => {
+    // Create a run in 'complete' state
+    const completedRun = await prisma.agentRun.create({
+      data: {
+        userId: DEV_USER_ID,
+        repoId: prRepoId,
+        taskDescription: 'done task',
+        status: 'completed',
+        currentState: 'complete',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${completedRun.id}/approve-pr`,
+    })
+
+    expect(res.statusCode).toBe(409)
+    await prisma.agentRun.delete({ where: { id: completedRun.id } })
+  })
+
+  it('reject-pr returns 409 when run is not in waiting_for_pr_approval state', async () => {
+    const completedRun = await prisma.agentRun.create({
+      data: {
+        userId: DEV_USER_ID,
+        repoId: prRepoId,
+        taskDescription: 'done task',
+        status: 'completed',
+        currentState: 'complete',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${completedRun.id}/reject-pr`,
+    })
+
+    expect(res.statusCode).toBe(409)
+    await prisma.agentRun.delete({ where: { id: completedRun.id } })
+  })
+
+  it('approve-pr returns 404 for unknown runId', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/runs/nonexistent-run-pr/approve-pr',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('reject-pr returns 404 for unknown runId', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/runs/nonexistent-run-pr/reject-pr',
     })
     expect(res.statusCode).toBe(404)
   })

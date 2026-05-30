@@ -8,6 +8,8 @@ import type { MCPClientManager } from './mcp-client-manager.js';
 import { PathValidator } from './path-validator.js';
 import type { SandboxRunner } from './sandbox-runner.js';
 import type { AgentSSEEvent } from '@repo-pilot/shared';
+import type { GitHubService } from './github-service.js';
+import { composePRTitleAndBody } from './pr-composer.js';
 
 // Re-export so existing imports from agent-state-machine keep compiling
 export type { AgentSSEEvent } from '@repo-pilot/shared';
@@ -79,6 +81,8 @@ export class AgentStateMachine {
   private stepStartTimes = new Map<string, number>();
   // ADR-2: in-memory only; not persisted — run is not resumable across restarts
   private repairCount = 0;
+  // Track whether the branch was pushed so we know whether to call deleteBranch on reject
+  private branchPushed = false;
 
   constructor(
     private readonly runId: string,
@@ -92,6 +96,12 @@ export class AgentStateMachine {
     private readonly testCommand: string,
     private readonly waitForTestRunApproval: () => Promise<boolean>,
     private readonly emitter?: EventEmitter,
+    // D1-8: PR approval gate and delivery params (optional to keep existing callers working)
+    private readonly waitForPRApproval?: () => Promise<boolean>,
+    private readonly githubService?: GitHubService,
+    private readonly githubToken?: string,
+    private readonly owner?: string,
+    private readonly repo?: string,
   ) {}
 
   start(): Promise<void> {
@@ -280,6 +290,13 @@ export class AgentStateMachine {
         this.emit({ type: 'repair_completed', runId: this.runId, attempt: this.repairCount, success: true });
       }
       await this.completeStep('review_tests');
+
+      // D1-8/D1-9: If a PR approval gate is wired, enter waiting_for_pr_approval
+      if (this.waitForPRApproval) {
+        await this.runPRPhase(lastPlanMessage);
+        return;
+      }
+
       await this.transition('complete', 'finalize', 'Run complete');
       await this.completeStep('finalize');
       this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
@@ -353,6 +370,129 @@ export class AgentStateMachine {
 
     // Recurse — re-enter waiting_for_test_run_approval for human gate on each attempt
     await this.runTestPhase(lastPlanMessage);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 4 — PR approval gate and opening_pr execution sequence
+  // ---------------------------------------------------------------------------
+
+  private async runPRPhase(lastPlanMessage: Anthropic.MessageParam): Promise<void> {
+    // Gather approved files for the PR body
+    const approvedFiles = await this.prisma.fileChange.findMany({
+      where: { runId: this.runId, approved: true },
+      select: { filePath: true },
+    });
+    const changedFiles = approvedFiles.map((f) => f.filePath);
+
+    // Resolve the run's task description for PR title/body
+    const run = await this.prisma.agentRun.findUniqueOrThrow({ where: { id: this.runId } });
+    const { title: prTitle, body: prBody } = composePRTitleAndBody(
+      run.taskDescription,
+      this.runId,
+      changedFiles,
+      true,
+    );
+
+    // Enter waiting_for_pr_approval and emit SSE
+    await this.transition('waiting_for_pr_approval', 'await_pr_approval', 'Waiting for PR approval');
+    this.emit({ type: 'approval_required', approvalType: 'pr', prTitle, prBody });
+
+    const approved = await this.waitForPRApproval!();
+
+    if (!approved) {
+      // Reject path (ADR-5): delete branch best-effort only if it was pushed, then cancel
+      if (this.branchPushed && this.githubService && this.owner && this.repo && run.branchName) {
+        try {
+          await this.githubService.deleteBranch(this.owner, this.repo, run.branchName, this.githubToken ?? '');
+        } catch {
+          // Non-fatal — deletion failure must not block the cancelled transition
+        }
+      }
+      await this.completeStep('await_pr_approval');
+      await this.cancel();
+      this.emit({ type: 'run_cancelled' });
+      return;
+    }
+
+    await this.completeStep('await_pr_approval');
+
+    // approved → opening_pr
+    await this.transition('opening_pr', 'open_pr', 'Opening pull request');
+
+    try {
+      // Ensure branch exists (createBranch is idempotent in our flow)
+      const branchName = run.branchName ?? `repo-pilot/${this.runId}`;
+      await this.githubService!.createBranch(this.repoPath, branchName);
+
+      await this.githubService!.commitChanges(this.repoPath, this.runId, prTitle);
+
+      await this.githubService!.pushBranch(
+        this.repoPath,
+        this.owner!,
+        this.repo!,
+        branchName,
+        this.githubToken!,
+      );
+      this.branchPushed = true;
+
+      const base = await this.githubService!.getDefaultBranch(this.owner!, this.repo!, this.githubToken!);
+
+      const { url: prUrl, number: prNumber } = await this.githubService!.openPullRequest(
+        this.owner!,
+        this.repo!,
+        branchName,
+        base,
+        prTitle,
+        prBody,
+        this.githubToken!,
+      );
+
+      // Persist PR record so Phase 5 / REST endpoints can read durable PR state
+      await this.prisma.pullRequest.upsert({
+        where: { runId: this.runId },
+        create: {
+          runId: this.runId,
+          githubPrNumber: prNumber,
+          githubPrUrl: prUrl,
+          title: prTitle,
+          body: prBody,
+          branchName,
+          status: 'open',
+        },
+        update: {
+          githubPrNumber: prNumber,
+          githubPrUrl: prUrl,
+          status: 'open',
+        },
+      });
+
+      await this.completeStep('open_pr');
+      await this.transition('complete', 'finalize', 'Run complete');
+      await this.completeStep('finalize');
+
+      this.emit({ type: 'pr_opened', prUrl, prNumber });
+      this.emit({ type: 'run_completed', planJson: lastPlanMessage.content, prUrl });
+    } catch (err) {
+      // Any failure in opening_pr → failed (standard error path handles state + SSE)
+      throw err;
+    }
+  }
+
+  /** Persist terminal `cancelled` state and close running steps — mirrors `fail()` */
+  private async cancel(): Promise<void> {
+    try {
+      await this.prisma.agentRun.update({
+        where: { id: this.runId },
+        data: { currentState: 'cancelled' },
+      });
+      await this.prisma.agentStep.updateMany({
+        where: { runId: this.runId, status: 'running' },
+        data: { status: 'completed', completedAt: new Date() },
+      });
+      this.emit({ type: 'state_changed', state: 'cancelled' });
+    } catch {
+      // best-effort — caller must not be blocked
+    }
   }
 
   private async handleProposeFileEdit(args: Record<string, unknown>): Promise<string> {
@@ -436,6 +576,8 @@ export class AgentStateMachine {
         where: { runId: this.runId, status: 'running' },
         data: { status: 'failed', errorMessage },
       });
+      // Emit so SSE consumers and tests see the state transition
+      this.emit({ type: 'state_changed', state: 'failed' });
     } catch {
       // best-effort — original error is re-thrown by caller
     }

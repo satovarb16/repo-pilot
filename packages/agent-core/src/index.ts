@@ -10,3 +10,4 @@ export { SandboxRunner, SandboxCommandError } from './sandbox-runner.js';
 export type { SandboxRunOptions, TestRunResult } from './sandbox-runner.js';
 export { GitHubService, GitHubCloneError, GitHubIssueNotFoundError, GitHubBranchError } from './github-service.js';
 export type { GitHubIssue } from './github-service.js';
+export { composePRTitleAndBody } from './pr-composer.js';

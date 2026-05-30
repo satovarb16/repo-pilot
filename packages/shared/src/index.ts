@@ -8,14 +8,17 @@ export type AgentSSEEvent =
   | { type: 'tool_called'; name: string; input: unknown; output: string }
   | { type: 'approval_required'; approvalType: 'plan'; planText: string }
   | { type: 'approval_required'; approvalType: 'test_run'; command: string }
+  | { type: 'approval_required'; approvalType: 'pr'; prTitle: string; prBody: string }
   | { type: 'edit_proposed'; changeId: string; filePath: string; diff: string; originalContent: string; proposedContent: string }
   | { type: 'test_run_started'; command: string }
   | { type: 'test_run_completed'; testRunId: string; status: string; exitCode: number; durationMs: number; sandboxed: boolean; stdout: string; stderr: string }
   | { type: 'repair_started'; attempt: number; maxAttempts: number }
   | { type: 'repair_completed'; runId: string; attempt: number; success: boolean }
   | { type: 'test_output_chunk'; runId: string; chunk: string }
-  | { type: 'run_completed'; planJson: unknown }
+  | { type: 'run_completed'; planJson: unknown; prUrl?: string }
   | { type: 'run_failed'; error: string }
+  | { type: 'pr_opened'; prUrl: string; prNumber: number }
+  | { type: 'run_cancelled' }
 
 // ----- Enums -----
 
@@ -34,6 +37,7 @@ export const AgentRunStatus = {
   REPAIRING: 'repairing',
   COMPLETE: 'complete',
   FAILED: 'failed',
+  CANCELLED: 'cancelled',
 } as const;
 
 export type AgentRunStatus = (typeof AgentRunStatus)[keyof typeof AgentRunStatus];
