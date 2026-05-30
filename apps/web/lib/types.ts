@@ -11,6 +11,8 @@ export interface FileChange {
   changeId: string
   filePath: string
   diff: string
+  originalContent: string
+  proposedContent: string
   status: 'pending' | 'approved' | 'rejected'
 }
 
@@ -18,15 +20,9 @@ export interface PlanProposal {
   planText: string
 }
 
-export type AgentSSEEvent =
-  | { type: 'state_changed'; state: string }
-  | { type: 'step_started'; stepType: string; description: string }
-  | { type: 'step_completed'; stepType: string; durationMs: number }
-  | { type: 'tool_called'; name: string; input: unknown; output: string }
-  | { type: 'approval_required'; approvalType: 'plan'; planText: string }
-  | { type: 'edit_proposed'; changeId: string; filePath: string; diff: string }
-  | { type: 'run_completed'; planJson: unknown }
-  | { type: 'run_failed'; error: string }
+// AgentSSEEvent is the single authoritative definition from the shared package.
+// Do NOT redefine it here — import only.
+export type { AgentSSEEvent } from '@repo-pilot/shared'
 
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed'
 

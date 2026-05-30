@@ -6,16 +6,11 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { ClaudeService } from './claude-service.js';
 import type { MCPClientManager } from './mcp-client-manager.js';
 import { PathValidator } from './path-validator.js';
+import type { SandboxRunner } from './sandbox-runner.js';
+import type { AgentSSEEvent } from '@repo-pilot/shared';
 
-export type AgentSSEEvent =
-  | { type: 'state_changed'; state: string }
-  | { type: 'step_started'; stepType: string; description: string }
-  | { type: 'step_completed'; stepType: string; durationMs: number }
-  | { type: 'tool_called'; name: string; input: unknown; output: string }
-  | { type: 'approval_required'; approvalType: 'plan'; planText: string }
-  | { type: 'edit_proposed'; changeId: string; filePath: string; diff: string }
-  | { type: 'run_completed'; planJson: unknown }
-  | { type: 'run_failed'; error: string }
+// Re-export so existing imports from agent-state-machine keep compiling
+export type { AgentSSEEvent } from '@repo-pilot/shared';
 
 const PHASE_1_TOOLS: Anthropic.Tool[] = [
   {
@@ -74,10 +69,16 @@ const PHASE_2_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+// PHASE_3_TOOLS: same as PHASE_2_TOOLS (read tools + propose_file_edit).
+// No run_tests tool — test execution is inline in the state machine (ADR-1).
+const PHASE_3_TOOLS: Anthropic.Tool[] = [...PHASE_2_TOOLS];
+
 export class AgentStateMachine {
   private stepCounter = 0;
   private queue: Promise<void> = Promise.resolve();
   private stepStartTimes = new Map<string, number>();
+  // ADR-2: in-memory only; not persisted — run is not resumable across restarts
+  private repairCount = 0;
 
   constructor(
     private readonly runId: string,
@@ -87,6 +88,9 @@ export class AgentStateMachine {
     private readonly repoPath: string,
     private readonly waitForPlanApproval: () => Promise<boolean>,
     private readonly waitForEditApprovals: () => Promise<{ approved: string[]; rejected: string[] }>,
+    private readonly sandboxRunner: SandboxRunner,
+    private readonly testCommand: string,
+    private readonly waitForTestRunApproval: () => Promise<boolean>,
     private readonly emitter?: EventEmitter,
   ) {}
 
@@ -162,7 +166,8 @@ export class AgentStateMachine {
           ...planMessages,
           {
             role: 'user',
-            content: 'The plan is approved. Now implement it by proposing the necessary file edits using the propose_file_edit tool.',
+            content:
+              'The plan is approved. Now implement it by proposing the necessary file edits using the propose_file_edit tool.\n\nIMPORTANT: Only implement exactly what is described in the approved plan above. Do not make any additional changes, refactors, cleanup, or improvements that were not explicitly listed in the plan. Strict scope adherence is required.',
           },
         ],
         PHASE_2_TOOLS,
@@ -200,7 +205,8 @@ export class AgentStateMachine {
 
       await this.completeStep('edit_files');
 
-      this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
+      // Edits written → enter test run phase (Phase 3)
+      await this.runTestPhase(lastPlanMessage);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.emit({ type: 'run_failed', error: message });
@@ -209,6 +215,144 @@ export class AgentStateMachine {
     } finally {
       if (mcpStarted) await this.mcpClientManager.stop().catch(() => {});
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 3 — test run, review, and bounded repair loop
+  // ---------------------------------------------------------------------------
+
+  private async runTestPhase(lastPlanMessage: Anthropic.MessageParam): Promise<void> {
+    // waiting_for_test_run_approval
+    await this.transition('waiting_for_test_run_approval', 'await_test_approval', 'Waiting for test-run approval');
+    this.emit({ type: 'approval_required', approvalType: 'test_run', command: this.testCommand });
+
+    const approved = await this.waitForTestRunApproval();
+    if (!approved) {
+      // Graceful end — user chose not to run tests
+      await this.completeStep('await_test_approval');
+      await this.transition('complete', 'finalize', 'Run complete (tests skipped)');
+      await this.completeStep('finalize');
+      this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
+      return;
+    }
+    await this.completeStep('await_test_approval');
+
+    // running_tests
+    await this.transition('running_tests', 'run_tests', `Running: ${this.testCommand}`);
+    this.emit({ type: 'test_run_started', command: this.testCommand });
+
+    const result = await this.sandboxRunner.run(
+      { command: this.testCommand, repoPath: this.repoPath },
+      (chunk) => this.emit({ type: 'test_output_chunk', runId: this.runId, chunk }),
+    );
+
+    const testRun = await this.prisma.testRun.create({
+      data: {
+        runId: this.runId,
+        command: this.testCommand,
+        status: result.exitCode === 0 ? 'passed' : 'failed',
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: result.durationMs,
+        dockerImage: result.dockerImage,
+      },
+    });
+
+    this.emit({
+      type: 'test_run_completed',
+      testRunId: testRun.id,
+      status: testRun.status,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      sandboxed: result.sandboxed,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+    await this.completeStep('run_tests');
+
+    // reviewing
+    await this.transition('reviewing', 'review_tests', 'Reviewing test results');
+
+    if (result.exitCode === 0) {
+      // Emit repair_completed (success) if we are in a repair iteration
+      if (this.repairCount > 0) {
+        this.emit({ type: 'repair_completed', runId: this.runId, attempt: this.repairCount, success: true });
+      }
+      await this.completeStep('review_tests');
+      await this.transition('complete', 'finalize', 'Run complete');
+      await this.completeStep('finalize');
+      this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
+      return;
+    }
+
+    // Tests failed — check repair guard (ADR-2: max 2 attempts)
+    if (this.repairCount >= 2) {
+      // Emit repair_completed (failure) for the last attempt
+      this.emit({ type: 'repair_completed', runId: this.runId, attempt: this.repairCount, success: false });
+      await this.completeStep('review_tests');
+      throw new Error('Tests failed after 2 repair attempts');
+    }
+
+    this.repairCount++;
+    await this.completeStep('review_tests');
+
+    // repairing
+    await this.transition('repairing', `repair_${this.repairCount}`, `Repair attempt ${this.repairCount}/2`);
+    this.emit({ type: 'repair_started', attempt: this.repairCount, maxAttempts: 2 });
+
+    // Feed the failing output back to Claude and let it propose repair edits
+    const repairMessages: Anthropic.MessageParam[] = [
+      {
+        role: 'user',
+        content: `The tests failed. Exit code: ${result.exitCode}.\n\nSTDOUT:\n${result.stdout}\n\nSTDERR:\n${result.stderr}\n\nPlease analyze the failures and propose file edits to fix them.`,
+      },
+    ];
+
+    const tracingExecutor = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      if (name === 'propose_file_edit') {
+        return await this.handleProposeFileEdit(args);
+      }
+      const output = await this.mcpClientManager.callTool(name, args);
+      this.emit({ type: 'tool_called', name, input: args, output });
+      return output;
+    };
+
+    await this.claudeService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor);
+
+    // Re-run edit approval gate for repair edits
+    const repairEdits = await this.prisma.fileChange.findMany({
+      where: { runId: this.runId, approved: null },
+    });
+
+    if (repairEdits.length > 0) {
+      await this.transition('waiting_for_edit_approval', 'await_repair_edit_approval', 'Waiting for repair edit approval');
+      const { approved: approvedIds, rejected: rejectedIds } = await this.waitForEditApprovals();
+      await this.completeStep('await_repair_edit_approval');
+
+      const validator = new PathValidator(this.repoPath);
+      for (const changeId of approvedIds) {
+        const fc = repairEdits.find((e) => e.id === changeId);
+        if (!fc || !fc.proposedContent) continue;
+        const absPath = validator.validate(fc.filePath);
+        await writeFile(absPath, fc.proposedContent, 'utf8');
+        await this.prisma.fileChange.update({
+          where: { id: changeId },
+          data: { approved: true, writtenAt: new Date() },
+        });
+      }
+      for (const changeId of rejectedIds) {
+        await this.prisma.fileChange.update({
+          where: { id: changeId },
+          data: { approved: false },
+        });
+      }
+    }
+
+    await this.completeStep(`repair_${this.repairCount}`);
+
+    // Recurse — re-enter waiting_for_test_run_approval for human gate on each attempt
+    await this.runTestPhase(lastPlanMessage);
   }
 
   private async handleProposeFileEdit(args: Record<string, unknown>): Promise<string> {
@@ -225,20 +369,25 @@ export class AgentStateMachine {
       // File doesn't exist yet — treat as new file, diff shows all additions
     }
 
-    const diff = createPatch(filePath, originalContent, proposedContent, '', '');
+    const normalizedOriginal = originalContent.replace(/\r\n/g, '\n');
+    const normalizedProposed = proposedContent.replace(/\r\n/g, '\n');
+
+    console.log(`[propose_file_edit] path=${filePath} originalLen=${normalizedOriginal.length} proposedLen=${normalizedProposed.length} same=${normalizedOriginal === normalizedProposed}`);
+
+    const diff = createPatch(filePath, normalizedOriginal, normalizedProposed, '', '');
 
     const fileChange = await this.prisma.fileChange.create({
       data: {
         runId: this.runId,
         filePath,
-        changeType: originalContent === '' ? 'create' : 'edit',
-        originalContent,
-        proposedContent,
+        changeType: normalizedOriginal === '' ? 'create' : 'edit',
+        originalContent: normalizedOriginal,
+        proposedContent: normalizedProposed,
         diffContent: diff,
       },
     });
 
-    this.emit({ type: 'edit_proposed', changeId: fileChange.id, filePath, diff });
+    this.emit({ type: 'edit_proposed', changeId: fileChange.id, filePath, diff, originalContent: normalizedOriginal, proposedContent: normalizedProposed });
 
     return JSON.stringify({
       changeId: fileChange.id,

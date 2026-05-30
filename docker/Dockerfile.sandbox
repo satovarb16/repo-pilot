@@ -1,2 +1,25 @@
-FROM node:20-alpine
-# Sandboxed test execution environment — implemented in Phase 4
+FROM node:20-slim AS sandbox
+
+WORKDIR /app
+
+# Layer 1 (cached unless manifests change): install dependencies
+# Copy only manifests first so this layer is reused when only source changes
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+
+# Install based on whichever lockfile is present
+RUN if [ -f pnpm-lock.yaml ]; then \
+      corepack enable && pnpm install --frozen-lockfile; \
+    elif [ -f yarn.lock ]; then \
+      yarn install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then \
+      npm ci; \
+    else \
+      npm install; \
+    fi
+
+# Layer 2 (changes every run): application source with approved edits
+COPY . .
+
+# Test command is NOT baked in — SandboxRunner injects it as the container Cmd
+# at createContainer time using the validated allowlist command.
+# NetworkMode: none is set via HostConfig, not here.

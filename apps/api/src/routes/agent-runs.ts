@@ -14,7 +14,9 @@ const createRunBody = z.object({
 interface AgentRunsRouteOptions {
   prisma: PrismaClient;
   encryption: EncryptionService;
-  agentRunner: AgentRunner;
+  agentRunner: AgentRunner & {
+    resolveTestRunApproval?: (runId: string, approved: boolean) => void;
+  };
   githubService: GitHubService;
 }
 
@@ -54,6 +56,9 @@ export async function agentRunsRoute(
 
     const runId = agentRun.id;
 
+    // Register emitter before clone so the SSE stream can attach immediately
+    agentRunner.register(runId);
+
     // Fire and forget: clone repo then start agent loop
     ;(async () => {
       const repoPath = await githubService.cloneRepo(repository.cloneUrl, repository.id, decryptedToken);
@@ -79,7 +84,8 @@ export async function agentRunsRoute(
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
       });
 
       return new Promise<void>((resolve) => {
@@ -121,6 +127,45 @@ export async function agentRunsRoute(
       }
       agentRunner.resolvePlanApproval(runId, result.data.action === 'approve');
       return reply.send({ ok: true });
+    },
+  );
+
+  // Phase 3: Test-run approval
+  const testRunApprovalBody = z.object({
+    action: z.enum(['approve', 'reject']),
+  });
+
+  app.post<{ Params: { runId: string } }>(
+    '/api/v1/agent/runs/:runId/approve-test-run',
+    async (request, reply) => {
+      const result = testRunApprovalBody.safeParse(request.body);
+      if (!result.success) {
+        return reply.code(400).send({ error: result.error.flatten() });
+      }
+      const { runId } = request.params;
+      const run = await prisma.agentRun.findFirst({ where: { id: runId }, select: { id: true } });
+      if (!run) {
+        return reply.code(404).send({ error: 'Run not found' });
+      }
+      agentRunner.resolveTestRunApproval?.(runId, result.data.action === 'approve');
+      return reply.send({ ok: true });
+    },
+  );
+
+  // Phase 3: Test results — durable history (survives SSE disconnect / page reload)
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/agent/runs/:id/test-results',
+    async (request, reply) => {
+      const { id: runId } = request.params;
+      const run = await prisma.agentRun.findFirst({ where: { id: runId }, select: { id: true } });
+      if (!run) {
+        return reply.code(404).send({ error: 'Run not found' });
+      }
+      const testRuns = await prisma.testRun.findMany({
+        where: { runId },
+        orderBy: { createdAt: 'asc' },
+      });
+      return reply.send({ testRuns });
     },
   );
 

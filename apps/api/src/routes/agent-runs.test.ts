@@ -11,10 +11,12 @@ const prisma = new PrismaClient();
 
 // Shared mock for AgentRunner — includes all methods used across all test suites
 const agentRunner = {
+  register: vi.fn(),
   start: vi.fn().mockResolvedValue(undefined),
   getEmitter: vi.fn<() => EventEmitter | undefined>(),
   resolvePlanApproval: vi.fn(),
   resolveEditApprovals: vi.fn(),
+  resolveTestRunApproval: vi.fn(),
 };
 
 describe('Agent run routes', () => {
@@ -33,15 +35,17 @@ describe('Agent run routes', () => {
 
     await ensureDevUser(prisma);
 
-    const repo = await prisma.repository.create({
-      data: {
+    const repo = await prisma.repository.upsert({
+      where: { userId_githubRepoId: { userId: DEV_USER_ID, githubRepoId: 99999 } },
+      create: {
         userId: DEV_USER_ID,
-        githubRepoId: 88888,
+        githubRepoId: 99999,
         owner: 'test-owner',
         name: 'test-repo-for-runs',
         cloneUrl: 'https://github.com/test-owner/test-repo-for-runs',
         encryptedToken: encryption.encrypt('test-pat'),
       },
+      update: {},
     });
     testRepoId = repo.id;
 
@@ -56,9 +60,8 @@ describe('Agent run routes', () => {
   });
 
   afterAll(async () => {
-    for (const id of createdRunIds) {
-      await prisma.agentRun.deleteMany({ where: { id } });
-    }
+    // Delete all runs for this repo first to satisfy FK constraints
+    await prisma.agentRun.deleteMany({ where: { repoId: testRepoId } });
     await prisma.repository.deleteMany({ where: { id: testRepoId } });
     await prisma.$disconnect();
     await app.close();
@@ -456,5 +459,202 @@ describe('PATCH /api/v1/agent/runs/:runId/file-changes/:changeId', () => {
 
     expect(res.statusCode).toBe(200)
     expect(resolveSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D1-4.3 — Phase 3 route tests
+// ---------------------------------------------------------------------------
+describe('POST /api/v1/agent/runs/:runId/approve-test-run', () => {
+  let app: FastifyInstance
+  let testRunRepoId: string
+  const testRunRunIds = ['run-tr-1', 'run-tr-2', 'run-tr-3']
+
+  beforeEach(() => vi.clearAllMocks())
+
+  beforeAll(async () => {
+    const rawKey = process.env.TOKEN_ENCRYPTION_KEY ?? ''
+    const encryptionKey = /^[0-9a-fA-F]{64}$/.test(rawKey) ? rawKey : '0'.repeat(64)
+    const encryption = new EncryptionService(encryptionKey)
+
+    await ensureDevUser(prisma)
+
+    const repo = await prisma.repository.create({
+      data: {
+        userId: DEV_USER_ID,
+        githubRepoId: 77773,
+        owner: 'test-owner',
+        name: 'test-repo-test-run',
+        cloneUrl: 'https://github.com/test-owner/test-repo-test-run',
+        encryptedToken: encryption.encrypt('test-pat'),
+      },
+    })
+    testRunRepoId = repo.id
+
+    for (const runId of testRunRunIds) {
+      await prisma.agentRun.upsert({
+        where: { id: runId },
+        create: { id: runId, userId: DEV_USER_ID, repoId: testRunRepoId, taskDescription: 'test', status: 'running', currentState: 'waiting_for_test_run_approval' },
+        update: {},
+      })
+    }
+
+    app = Fastify()
+    await app.register(agentRunsRoute, {
+      prisma,
+      encryption,
+      agentRunner: agentRunner as unknown as AgentRunner,
+      githubService: { cloneRepo: vi.fn() } as unknown as GitHubService,
+    })
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    for (const runId of testRunRunIds) {
+      await prisma.agentRun.deleteMany({ where: { id: runId } })
+    }
+    await prisma.repository.deleteMany({ where: { id: testRunRepoId } })
+    await app.close()
+  })
+
+  it('returns 200 and resolves approval when action is approve', async () => {
+    const runId = 'run-tr-1'
+    const resolveSpy = vi.spyOn(agentRunner, 'resolveTestRunApproval')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${runId}/approve-test-run`,
+      payload: { action: 'approve' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(resolveSpy).toHaveBeenCalledWith(runId, true)
+  })
+
+  it('returns 200 and resolves with false when action is reject', async () => {
+    const runId = 'run-tr-2'
+    const resolveSpy = vi.spyOn(agentRunner, 'resolveTestRunApproval')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/agent/runs/${runId}/approve-test-run`,
+      payload: { action: 'reject' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(resolveSpy).toHaveBeenCalledWith(runId, false)
+  })
+
+  it('returns 400 for invalid action', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/runs/run-tr-3/approve-test-run',
+      payload: { action: 'maybe' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('returns 404 for unknown runId', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/runs/nonexistent-run/approve-test-run',
+      payload: { action: 'approve' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('GET /api/v1/agent/runs/:id/test-results', () => {
+  let app: FastifyInstance
+  let trRepoId: string
+  const trRunIds = ['run-get-tr-1', 'run-get-tr-2']
+
+  beforeEach(() => vi.clearAllMocks())
+
+  beforeAll(async () => {
+    const rawKey = process.env.TOKEN_ENCRYPTION_KEY ?? ''
+    const encryptionKey = /^[0-9a-fA-F]{64}$/.test(rawKey) ? rawKey : '0'.repeat(64)
+    const encryption = new EncryptionService(encryptionKey)
+
+    await ensureDevUser(prisma)
+
+    const repo = await prisma.repository.create({
+      data: {
+        userId: DEV_USER_ID,
+        githubRepoId: 77774,
+        owner: 'test-owner',
+        name: 'test-repo-get-tr',
+        cloneUrl: 'https://github.com/test-owner/test-repo-get-tr',
+        encryptedToken: encryption.encrypt('test-pat'),
+      },
+    })
+    trRepoId = repo.id
+
+    for (const runId of trRunIds) {
+      await prisma.agentRun.upsert({
+        where: { id: runId },
+        create: { id: runId, userId: DEV_USER_ID, repoId: trRepoId, taskDescription: 'test', status: 'running', currentState: 'reviewing' },
+        update: {},
+      })
+    }
+
+    app = Fastify()
+    await app.register(agentRunsRoute, {
+      prisma,
+      encryption,
+      agentRunner: agentRunner as unknown as AgentRunner,
+      githubService: { cloneRepo: vi.fn() } as unknown as GitHubService,
+    })
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await prisma.testRun.deleteMany({ where: { runId: { in: trRunIds } } })
+    for (const runId of trRunIds) {
+      await prisma.agentRun.deleteMany({ where: { id: runId } })
+    }
+    await prisma.repository.deleteMany({ where: { id: trRepoId } })
+    await app.close()
+  })
+
+  it('returns 200 with ordered TestRun array', async () => {
+    const runId = 'run-get-tr-1'
+    // Seed test runs
+    await prisma.testRun.createMany({
+      data: [
+        { runId, command: 'npm test', status: 'failed', exitCode: 1, stdout: 'err', stderr: '' },
+        { runId, command: 'npm test', status: 'passed', exitCode: 0, stdout: 'ok', stderr: '' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/agent/runs/${runId}/test-results`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ testRuns: unknown[] }>()
+    expect(body.testRuns).toHaveLength(2)
+    expect((body.testRuns[0] as any).exitCode).toBe(1)
+    expect((body.testRuns[1] as any).exitCode).toBe(0)
+  })
+
+  it('returns 200 with empty array when no test runs', async () => {
+    const runId = 'run-get-tr-2'
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/agent/runs/${runId}/test-results`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ testRuns: unknown[] }>()
+    expect(body.testRuns).toHaveLength(0)
+  })
+
+  it('returns 404 for unknown runId', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/runs/nonexistent-run/test-results',
+    })
+    expect(res.statusCode).toBe(404)
   })
 })

@@ -18,6 +18,8 @@ const makeEdit = (n: number): FileChange => ({
   changeId: `c${n}`,
   filePath: `src/file${n}.ts`,
   diff: `--- a/src/file${n}.ts\n+++ b/src/file${n}.ts\n@@ -1 +1 @@\n-old\n+new`,
+  originalContent: 'old',
+  proposedContent: 'new',
   status: 'pending',
 })
 

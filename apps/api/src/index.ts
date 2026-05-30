@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -15,7 +16,7 @@ const env = parseEnv();
 const prisma = new PrismaClient();
 const encryption = new EncryptionService(env.TOKEN_ENCRYPTION_KEY);
 const githubService = new GitHubService(env.REPO_ROOT);
-const agentRunner = new AgentRunner(prisma, env.REPO_ROOT, env.ANTHROPIC_API_KEY, env.MCP_SERVER_PATH);
+const agentRunner = new AgentRunner(prisma, env.REPO_ROOT, env.ANTHROPIC_API_KEY, env.MCP_SERVER_PATH, env.DOCKER_SOCKET);
 
 await ensureDevUser(prisma);
 

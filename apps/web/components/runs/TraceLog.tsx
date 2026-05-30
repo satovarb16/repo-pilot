@@ -14,10 +14,14 @@ function eventColor(event: AgentSSEEvent): string {
     case 'step_started':
     case 'step_completed':
       return 'text-amber-400'
+    case 'approval_required':
+      return 'text-amber-400'
     case 'run_completed':
       return 'text-green-400'
     case 'run_failed':
       return 'text-red-400'
+    case 'edit_proposed':
+      return 'text-cyan-400'
     default:
       return 'text-muted-foreground'
   }
@@ -33,10 +37,14 @@ function formatEvent(event: AgentSSEEvent): string {
       return `step: ${event.stepType} — ${event.description}`
     case 'step_completed':
       return `✓ ${event.stepType} (${event.durationMs}ms)`
+    case 'approval_required':
+      return '⚡ Plan ready for approval'
     case 'run_completed':
       return '✓ run completed'
     case 'run_failed':
       return `✗ run failed: ${event.error}`
+    case 'edit_proposed':
+      return `📝 Edit proposed: ${event.filePath}`
     default:
       return JSON.stringify(event)
   }

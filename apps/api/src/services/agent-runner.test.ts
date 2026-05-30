@@ -10,6 +10,8 @@ const makeRunner = () =>
     '/fake/mcp-path',
   )
 
+// D1-4.1 tests are at the bottom (test-run resolver)
+
 describe('AgentRunner approval mechanism', () => {
   it('resolvePlanApproval resolves the waitForPlanApproval promise with true', async () => {
     const runner = makeRunner()
@@ -42,5 +44,38 @@ describe('AgentRunner approval mechanism', () => {
     expect(() =>
       runner.resolveEditApprovals('unknown-run', { approved: [], rejected: [] }),
     ).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D1-4.1 — AgentRunner test-run approval mechanism
+// ---------------------------------------------------------------------------
+describe('AgentRunner test-run approval mechanism', () => {
+  it('resolveTestRunApproval resolves waitForTestRunApproval with true', async () => {
+    const runner = makeRunner()
+    const promise = runner.waitForTestRunApproval('run-1')
+    runner.resolveTestRunApproval('run-1', true)
+    await expect(promise).resolves.toBe(true)
+  })
+
+  it('resolveTestRunApproval resolves with false when rejected', async () => {
+    const runner = makeRunner()
+    const promise = runner.waitForTestRunApproval('run-1')
+    runner.resolveTestRunApproval('run-1', false)
+    await expect(promise).resolves.toBe(false)
+  })
+
+  it('resolver is deleted from Map after resolution', async () => {
+    const runner = makeRunner()
+    const promise = runner.waitForTestRunApproval('run-1')
+    runner.resolveTestRunApproval('run-1', true)
+    await promise
+    // Resolving again for same runId is a no-op (resolver deleted)
+    expect(() => runner.resolveTestRunApproval('run-1', true)).not.toThrow()
+  })
+
+  it('resolveTestRunApproval is a no-op for unknown runId', () => {
+    const runner = makeRunner()
+    expect(() => runner.resolveTestRunApproval('unknown-run', true)).not.toThrow()
   })
 })
