@@ -118,9 +118,9 @@ Development follows 5 phases defined in `docs/architecture.md` §14:
 2. File edit proposals + diff viewer + SSE ✓
    - PR #13/#14 ✓: propose_file_edit, write_file, approval endpoints, SSE
    - PR #15 ✓: PlanApprovalCard, FileEditApproval, DiffViewer, MainPanel wiring
-3. Docker-sandboxed test runner + repair loop — in progress
+3. Docker-sandboxed test runner + repair loop ✓
    - PR #16 ✓ (D1 backend): SandboxRunner, run_tests MCP tool, repair loop, test approval gate
-   - PR #17 open (D2 frontend): TestApprovalCard, TestOutputPanel, SSE wiring, MainPanel conditional rendering
+   - PR #17 ✓ (D2 frontend): TestApprovalCard, TestOutputPanel, SSE wiring, MainPanel conditional rendering
 4. Branch, commit, PR integration
 5. Trace viewer, security hardening, demo polish
 

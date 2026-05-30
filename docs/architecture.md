@@ -1049,33 +1049,27 @@ repo-pilot/
 
 ---
 
-### Phase 3 — Sandboxed Test Runner
+### Phase 3 — Sandboxed Test Runner ✓ COMPLETE
 
 **Goals:** Tests run inside Docker. Results displayed. Agent can attempt one repair.
 
-**Deliverables:**
-- `Dockerfile.sandbox` for Node.js and Python environments
-- `SandboxRunner` service that builds container, mounts changes, runs command, returns output
-- `run_tests` and `run_linter` MCP tools
-- Test approval flow (approve-test-run endpoint)
-- Test output panel in right panel
-- Repair loop (max 2 iterations)
+#### PR #16 ✓ COMPLETE — D1 Backend (feat/phase-3-pr-d1-backend)
+- `SandboxRunner`: dockerode integration, allowlisted test commands, 120s timeout, `--network none`, child_process fallback when Docker unavailable
+- `Dockerfile.sandbox`: cache-friendly Node 20-slim image
+- `AgentStateMachine` extended: `waiting_for_test_run_approval → running_tests → reviewing` (pass) or `repairing → failed` (max 2 iterations); `repairCount` guard
+- `AgentSSEEvent` union moved to `@repo-pilot/shared` (single source of truth); Phase 3 variants: `test_run_started`, `test_run_completed`, `repair_started`
+- `AgentRunner`: `waitForTestRunApproval` / `resolveTestRunApproval` promise map
+- API routes: `POST /:runId/approve-test-run`, `GET /:id/test-results`
 
-**Backend work:** `SandboxRunner` class, Docker SDK integration (`dockerode`), test command allowlist, timeout enforcement.
+#### PR #17 ✓ COMPLETE — D2 Frontend (feat/phase-3-pr-d2-frontend)
+- Zustand store: `testRuns`, `repairAttempt`, `testApprovalCommand` state + actions
+- SSE hook: dispatches `test_run_started`, `test_run_completed`, `repair_started`, `approval_required{test_run}`
+- `TestApprovalCard`: approve/reject gate, matches existing approval card styling
+- `TestOutputPanel`: per-attempt stdout/stderr, pass/fail badge, non-sandboxed warning, repair attempt counter
+- `MainPanel` wired: conditional rendering for `waiting_for_test_run_approval`, `running_tests`, `reviewing`, `repairing`; hydrates test results on mount via `GET /test-results`
+- Bug fixed: `updateTestRun` falls back to first `status:'running'` row when DB UUID doesn't match sentinel id
 
-**Frontend work:** Test output panel with terminal-style display, test approval card, pass/fail badge.
-
-**Deferred from Phase 1 (PR C2):**
-- Navigation upgraded from single-panel state machine to tabs per run (Option C from C2 brainstorming) — center panel becomes tabbed when multiple runs exist
-- Run history list in sidebar (past runs per repo with status badges)
-- Real-time run status badge per run in sidebar
-- Error toast system (replaces inline errors from Phase 1)
-
-**Security work:** Docker `--network none` enforced, volume mounts restricted, container destroyed after run, timeout kills container.
-
-**Acceptance criteria:** After editing alarm validation code, agent runs `npm test` in Docker. Test output visible in UI. If tests fail, agent proposes a repair.
-
-**Likely issues:** Docker not available in dev environment, image build time too slow, npm install inside sandbox taking too long.
+**Acceptance criteria:** ✓ After editing alarm validation code, agent runs `npm test` in Docker. Test output visible in UI. If tests fail, agent proposes a repair.
 
 ---
 
