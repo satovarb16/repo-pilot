@@ -3,10 +3,27 @@ import { EventEmitter } from 'node:events';
 import { PrismaClient } from '@prisma/client';
 import { AgentStateMachine } from './agent-state-machine.js';
 import type { AgentSSEEvent } from './agent-state-machine.js';
+import type { SandboxRunner, TestRunResult } from './sandbox-runner.js';
 
 // Default no-op approval callbacks for integration tests (plan always approved, no edits pending)
 const noopPlanApproval = vi.fn().mockResolvedValue(true);
 const noopEditApprovals = vi.fn().mockResolvedValue({ approved: [], rejected: [] });
+const noopTestRunApproval = vi.fn().mockResolvedValue(true);
+
+// Minimal SandboxRunner mock that returns a passing result
+const makeMockSandboxRunner = (overrides?: Partial<TestRunResult>): SandboxRunner =>
+  ({
+    run: vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: 'Tests passed',
+      stderr: '',
+      durationMs: 500,
+      sandboxed: false,
+      timedOut: false,
+      dockerImage: null,
+      ...overrides,
+    }),
+  }) as unknown as SandboxRunner;
 
 // Mock ClaudeService and MCPClientManager — only DB interaction is real
 const mockCallTool = vi.fn().mockResolvedValue('src/index.ts\npackage.json\nREADME.md');
@@ -77,11 +94,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await prisma.agentStep.deleteMany({ where: { runId } });
   await prisma.fileChange.deleteMany({ where: { runId } });
+  await prisma.testRun.deleteMany({ where: { runId } });
   await prisma.agentRun.deleteMany({ where: { id: runId } });
 });
 
 /** Helper — builds an SM with real DB and the default no-op approval callbacks */
-function makeSM(emitter?: EventEmitter) {
+function makeSM(emitter?: EventEmitter, sandboxRunner?: SandboxRunner) {
   return new AgentStateMachine(
     runId,
     prisma,
@@ -90,6 +108,9 @@ function makeSM(emitter?: EventEmitter) {
     '/tmp/repo',
     noopPlanApproval,
     noopEditApprovals,
+    sandboxRunner ?? makeMockSandboxRunner(),
+    'npm test',
+    noopTestRunApproval,
     emitter,
   );
 }
@@ -261,6 +282,16 @@ const makePrisma = (overrides?: object) => ({
   },
   fileChange: {
     findMany: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({ id: 'fc-1', filePath: 'src/foo.ts' }),
+    update: vi.fn().mockResolvedValue({}),
+  },
+  testRun: {
+    create: vi.fn().mockResolvedValue({
+      id: 'tr-mock-1',
+      command: 'npm test',
+      status: 'passed',
+      exitCode: 0,
+    }),
   },
   ...overrides,
 });
@@ -295,6 +326,9 @@ describe('AgentStateMachine plan approval gate', () => {
       '/tmp/repo',
       waitForPlanApproval,
       waitForEditApprovals,
+      makeMockSandboxRunner() as never,
+      'npm test',
+      noopTestRunApproval,
       emitter,
     )
 
@@ -321,6 +355,9 @@ describe('AgentStateMachine plan approval gate', () => {
       '/tmp/repo',
       waitForPlanApproval,
       waitForEditApprovals,
+      makeMockSandboxRunner() as never,
+      'npm test',
+      noopTestRunApproval,
     )
 
     await expect(sm.start()).rejects.toThrow('Plan rejected')
@@ -343,11 +380,302 @@ describe('AgentStateMachine plan approval gate', () => {
       '/tmp/repo',
       waitForPlanApproval,
       waitForEditApprovals,
+      makeMockSandboxRunner() as never,
+      'npm test',
+      noopTestRunApproval,
     )
 
     await sm.start()
 
     // sendWithTools called twice: once for planning, once for editing
     expect(claude.sendWithTools).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D1-3.1 — Phase 3 state machine tests (test run, repair loop, guards)
+// These tests use fully mocked Prisma + Claude + MCP + SandboxRunner
+// ---------------------------------------------------------------------------
+
+// makePrismaWithTestRun now just uses makePrisma which already has testRun
+const makePrismaWithTestRun = (overrides?: object) => makePrisma(overrides);
+
+describe('AgentStateMachine Phase 3 — test run flow', () => {
+  it('happy path: state sequence includes waiting_for_test_run_approval → running_tests → reviewing', async () => {
+    const prismaFake = makePrismaWithTestRun()
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    const waitForTestRunApproval = vi.fn().mockResolvedValue(true)
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      waitForTestRunApproval,
+      emitter,
+    )
+
+    await sm.start()
+
+    expect(states).toContain('waiting_for_test_run_approval')
+    expect(states).toContain('running_tests')
+    expect(states).toContain('reviewing')
+    expect(waitForTestRunApproval).toHaveBeenCalledOnce()
+  })
+
+  it('emits test_run_started and test_run_completed events', async () => {
+    const prismaFake = makePrismaWithTestRun()
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+    )
+
+    await sm.start()
+
+    expect(events.some((e) => e.type === 'test_run_started')).toBe(true)
+    expect(events.some((e) => e.type === 'test_run_completed')).toBe(true)
+  })
+
+  it('user rejection at test-run gate ends gracefully without failing', async () => {
+    const prismaFake = makePrismaWithTestRun()
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(false), // user rejects test run
+      emitter,
+    )
+
+    // Should NOT throw — rejection is a graceful end
+    await sm.start()
+
+    // run_completed should fire (graceful end)
+    expect(events.some((e) => e.type === 'run_completed')).toBe(true)
+  })
+
+  it('repair loop: fail once → repairing state → run again → complete', async () => {
+    const prismaFake = makePrismaWithTestRun()
+    const emitter = new EventEmitter()
+    const states: string[] = []
+    emitter.on('event', (e: AgentSSEEvent) => {
+      if (e.type === 'state_changed') states.push(e.state)
+    })
+
+    // First run fails, second passes
+    const failingSandbox = {
+      run: vi.fn()
+        .mockResolvedValueOnce({
+          exitCode: 1, stdout: '', stderr: 'Error', durationMs: 100,
+          sandboxed: false, timedOut: false, dockerImage: null,
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0, stdout: 'Pass', stderr: '', durationMs: 100,
+          sandboxed: false, timedOut: false, dockerImage: null,
+        }),
+    } as unknown as SandboxRunner
+
+    // testRun.create returns failed then passed
+    const prismaRepair = makePrisma({
+      testRun: {
+        create: vi.fn()
+          .mockResolvedValueOnce({ id: 'tr-1', status: 'failed', exitCode: 1 })
+          .mockResolvedValueOnce({ id: 'tr-2', status: 'passed', exitCode: 0 }),
+      },
+    })
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaRepair as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      failingSandbox,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+    )
+
+    await sm.start()
+
+    expect(states).toContain('repairing')
+    expect(states).toContain('reviewing')
+    // Should end in complete, not failed
+    const lastState = states[states.length - 1]
+    expect(lastState).toBe('complete')
+  })
+
+  it('repair guard: repairCount >= 2 → transitions to failed', async () => {
+    // Always fails
+    const alwaysFailSandbox = {
+      run: vi.fn().mockResolvedValue({
+        exitCode: 1, stdout: '', stderr: 'Fail', durationMs: 100,
+        sandboxed: false, timedOut: false, dockerImage: null,
+      }),
+    } as unknown as SandboxRunner
+
+    const prismaRepair = makePrisma({
+      testRun: {
+        create: vi.fn().mockResolvedValue({ id: 'tr-1', status: 'failed', exitCode: 1 }),
+      },
+    })
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaRepair as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      alwaysFailSandbox,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+    )
+
+    await expect(sm.start()).rejects.toThrow(/repair/i)
+  })
+
+  it('emits repair_completed after each repair iteration', async () => {
+    const prismaFake = makePrismaWithTestRun({
+      testRun: {
+        create: vi.fn()
+          .mockResolvedValueOnce({ id: 'tr-1', status: 'failed', exitCode: 1 })
+          .mockResolvedValueOnce({ id: 'tr-2', status: 'passed', exitCode: 0 }),
+      },
+    })
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    const failingSandbox = {
+      run: vi.fn()
+        .mockResolvedValueOnce({
+          exitCode: 1, stdout: '', stderr: 'Error', durationMs: 100,
+          sandboxed: false, timedOut: false, dockerImage: null,
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0, stdout: 'Pass', stderr: '', durationMs: 100,
+          sandboxed: false, timedOut: false, dockerImage: null,
+        }),
+    } as unknown as SandboxRunner
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      failingSandbox,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+    )
+
+    await sm.start()
+
+    const repairCompletedEvents = events.filter((e) => e.type === 'repair_completed') as Array<{
+      type: 'repair_completed'; runId: string; attempt: number; success: boolean
+    }>
+    expect(repairCompletedEvents.length).toBeGreaterThanOrEqual(1)
+    // First repair iteration failed → second run passed → repair_completed with success: true on pass
+    const successEvent = repairCompletedEvents.find((e) => e.success === true)
+    expect(successEvent).toBeDefined()
+  })
+
+  it('emits test_output_chunk events during test run', async () => {
+    const prismaFake = makePrismaWithTestRun()
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    // SandboxRunner that calls onChunk
+    const chunkingSandbox = {
+      run: vi.fn().mockImplementation(async (_opts: unknown, onChunk?: (c: string) => void) => {
+        onChunk?.('chunk A');
+        onChunk?.('chunk B');
+        return {
+          exitCode: 0, stdout: 'chunk A chunk B', stderr: '',
+          durationMs: 50, sandboxed: false, timedOut: false, dockerImage: null,
+        };
+      }),
+    } as unknown as SandboxRunner
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      chunkingSandbox,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+    )
+
+    await sm.start()
+
+    const chunkEvents = events.filter((e) => e.type === 'test_output_chunk') as Array<{
+      type: 'test_output_chunk'; runId: string; chunk: string
+    }>
+    expect(chunkEvents.length).toBe(2)
+    expect(chunkEvents[0].chunk).toBe('chunk A')
+    expect(chunkEvents[1].chunk).toBe('chunk B')
+    expect(chunkEvents[0].runId).toBe('run-1')
+  })
+
+  it('repairCount starts at 0 per new instance', () => {
+    const sm = new AgentStateMachine(
+      'run-1',
+      makePrismaWithTestRun() as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+    )
+    // Access private field via cast — this is a white-box invariant test
+    expect((sm as any).repairCount).toBe(0)
   })
 })

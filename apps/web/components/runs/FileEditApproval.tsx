@@ -51,16 +51,8 @@ export function FileEditApproval({ runId, edits }: FileEditApprovalProps) {
         {edits.map((edit) => (
           <TabsContent key={edit.changeId} value={edit.changeId} className="flex-1 overflow-auto mt-2">
             <DiffViewer
-              oldContent={edit.diff
-                .split('\n')
-                .filter((l) => l.startsWith('-') && !l.startsWith('---'))
-                .map((l) => l.slice(1))
-                .join('\n')}
-              newContent={edit.diff
-                .split('\n')
-                .filter((l) => l.startsWith('+') && !l.startsWith('+++'))
-                .map((l) => l.slice(1))
-                .join('\n')}
+              oldContent={edit.originalContent}
+              newContent={edit.proposedContent}
               filename={edit.filePath}
             />
           </TabsContent>

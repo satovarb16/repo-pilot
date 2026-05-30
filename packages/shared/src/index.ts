@@ -1,3 +1,22 @@
+// ----- SSE Event Types -----
+// Single authoritative definition. Both backend (agent-core) and frontend (web) import from here.
+
+export type AgentSSEEvent =
+  | { type: 'state_changed'; state: string }
+  | { type: 'step_started'; stepType: string; description: string }
+  | { type: 'step_completed'; stepType: string; durationMs: number }
+  | { type: 'tool_called'; name: string; input: unknown; output: string }
+  | { type: 'approval_required'; approvalType: 'plan'; planText: string }
+  | { type: 'approval_required'; approvalType: 'test_run'; command: string }
+  | { type: 'edit_proposed'; changeId: string; filePath: string; diff: string; originalContent: string; proposedContent: string }
+  | { type: 'test_run_started'; command: string }
+  | { type: 'test_run_completed'; testRunId: string; status: string; exitCode: number; durationMs: number; sandboxed: boolean; stdout: string; stderr: string }
+  | { type: 'repair_started'; attempt: number; maxAttempts: number }
+  | { type: 'repair_completed'; runId: string; attempt: number; success: boolean }
+  | { type: 'test_output_chunk'; runId: string; chunk: string }
+  | { type: 'run_completed'; planJson: unknown }
+  | { type: 'run_failed'; error: string }
+
 // ----- Enums -----
 
 export const AgentRunStatus = {

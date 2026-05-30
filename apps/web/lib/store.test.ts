@@ -117,17 +117,17 @@ describe('pending edits state', () => {
   it('addPendingEdit adds a FileChange with status pending', () => {
     useAppStore.setState({ pendingEdits: [] })
     const { addPendingEdit } = useAppStore.getState()
-    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b' })
+    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b', originalContent: 'a', proposedContent: 'b' })
     const edits = useAppStore.getState().pendingEdits
     expect(edits).toHaveLength(1)
-    expect(edits[0]).toEqual({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b', status: 'pending' })
+    expect(edits[0]).toEqual({ changeId: 'c1', filePath: 'src/foo.ts', diff: '--- a\n+++ b', originalContent: 'a', proposedContent: 'b', status: 'pending' })
   })
 
   it('resolveEdit updates the status of a specific edit', () => {
     useAppStore.setState({ pendingEdits: [] })
     const { addPendingEdit, resolveEdit } = useAppStore.getState()
-    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '' })
-    addPendingEdit({ changeId: 'c2', filePath: 'src/bar.ts', diff: '' })
+    addPendingEdit({ changeId: 'c1', filePath: 'src/foo.ts', diff: '', originalContent: '', proposedContent: '' })
+    addPendingEdit({ changeId: 'c2', filePath: 'src/bar.ts', diff: '', originalContent: '', proposedContent: '' })
     resolveEdit('c1', 'approved')
     const edits = useAppStore.getState().pendingEdits
     expect(edits.find((e) => e.changeId === 'c1')?.status).toBe('approved')
@@ -136,7 +136,7 @@ describe('pending edits state', () => {
 
   it('clearPendingEdits resets to empty array', () => {
     const { addPendingEdit, clearPendingEdits } = useAppStore.getState()
-    addPendingEdit({ changeId: 'c1', filePath: 'f.ts', diff: '' })
+    addPendingEdit({ changeId: 'c1', filePath: 'f.ts', diff: '', originalContent: '', proposedContent: '' })
     clearPendingEdits()
     expect(useAppStore.getState().pendingEdits).toHaveLength(0)
   })

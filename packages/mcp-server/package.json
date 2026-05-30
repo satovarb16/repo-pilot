@@ -14,12 +14,13 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@octokit/rest": "^21.0.0",
     "@repo-pilot/agent-core": "workspace:*",
+    "dotenv": "^17.4.2",
     "zod": "^3"
   },
   "devDependencies": {
-    "typescript": "*",
+    "@types/node": "^20",
     "tsx": "^4",
-    "vitest": "*",
-    "@types/node": "^20"
+    "typescript": "*",
+    "vitest": "*"
   }
 }

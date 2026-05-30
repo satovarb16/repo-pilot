@@ -11,6 +11,7 @@ import {
   isCloneStatus,
   isApprovalStatus,
 } from './index.js';
+import type { AgentSSEEvent } from './index.js';
 
 describe('AgentRunStatus', () => {
   it('has all state machine states as string values', () => {
@@ -111,6 +112,59 @@ describe('isCloneStatus', () => {
   it('returns false for invalid values', () => {
     expect(isCloneStatus('done')).toBe(false);
     expect(isCloneStatus(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1-1.1 — AgentSSEEvent Phase 3 union members (compile-time + runtime checks)
+// ---------------------------------------------------------------------------
+describe('AgentSSEEvent Phase 3 variants', () => {
+  it('test_run_started is a valid union member', () => {
+    const e: AgentSSEEvent = { type: 'test_run_started', command: 'npm test' };
+    expect(e.type).toBe('test_run_started');
+  });
+
+  it('test_run_completed is a valid union member', () => {
+    const e: AgentSSEEvent = {
+      type: 'test_run_completed',
+      testRunId: 'tr-1',
+      status: 'passed',
+      exitCode: 0,
+      durationMs: 1234,
+      sandboxed: true,
+      stdout: 'ok',
+      stderr: '',
+    };
+    expect(e.type).toBe('test_run_completed');
+  });
+
+  it('repair_started is a valid union member', () => {
+    const e: AgentSSEEvent = { type: 'repair_started', attempt: 1, maxAttempts: 2 };
+    expect(e.type).toBe('repair_started');
+  });
+
+  it('approval_required with approvalType test_run is a valid union member', () => {
+    const e: AgentSSEEvent = { type: 'approval_required', approvalType: 'test_run', command: 'npm test' };
+    expect(e.type).toBe('approval_required');
+    expect((e as { approvalType: string }).approvalType).toBe('test_run');
+  });
+});
+
+describe('AgentSSEEvent new variants (fix pass)', () => {
+  it('test_output_chunk is a valid union member', () => {
+    const e: AgentSSEEvent = { type: 'test_output_chunk', runId: 'run-1', chunk: 'some output' };
+    expect(e.type).toBe('test_output_chunk');
+  });
+
+  it('repair_completed is a valid union member (success)', () => {
+    const e: AgentSSEEvent = { type: 'repair_completed', runId: 'run-1', attempt: 1, success: true };
+    expect(e.type).toBe('repair_completed');
+    expect((e as { success: boolean }).success).toBe(true);
+  });
+
+  it('repair_completed is a valid union member (failure)', () => {
+    const e: AgentSSEEvent = { type: 'repair_completed', runId: 'run-1', attempt: 2, success: false };
+    expect((e as { success: boolean }).success).toBe(false);
   });
 });
 

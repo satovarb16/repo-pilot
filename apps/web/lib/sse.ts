@@ -11,7 +11,8 @@ export function useAgentStream(runId: string | null): void {
   useEffect(() => {
     if (!runId) return
 
-    const es = new EventSource(`/api/v1/agent/runs/${runId}/stream`)
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+    const es = new EventSource(`${apiBase}/api/v1/agent/runs/${runId}/stream`)
 
     es.onmessage = (e: MessageEvent) => {
       const event = JSON.parse(e.data as string) as AgentSSEEvent
@@ -20,7 +21,8 @@ export function useAgentStream(runId: string | null): void {
       if (event.type === 'approval_required' && event.approvalType === 'plan') {
         setPlanProposal({ planText: event.planText })
       } else if (event.type === 'edit_proposed') {
-        addPendingEdit({ changeId: event.changeId, filePath: event.filePath, diff: event.diff })
+        console.log('[sse] edit_proposed', { origLen: event.originalContent?.length, propLen: event.proposedContent?.length })
+        addPendingEdit({ changeId: event.changeId, filePath: event.filePath, diff: event.diff, originalContent: event.originalContent, proposedContent: event.proposedContent })
       } else if (event.type === 'run_completed') {
         setRunStatus('completed')
         es.close()

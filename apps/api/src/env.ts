@@ -7,6 +7,8 @@ export const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   REPO_ROOT: z.string().default('/tmp/repo-pilot/clones'),
   MCP_SERVER_PATH: z.string().min(1),
+  // Optional — when absent, SandboxRunner falls back to child_process
+  DOCKER_SOCKET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
