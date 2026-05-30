@@ -293,6 +293,9 @@ const makePrisma = (overrides?: object) => ({
       exitCode: 0,
     }),
   },
+  pullRequest: {
+    upsert: vi.fn().mockResolvedValue({}),
+  },
   ...overrides,
 });
 

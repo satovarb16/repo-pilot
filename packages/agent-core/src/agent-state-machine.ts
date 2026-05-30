@@ -447,6 +447,25 @@ export class AgentStateMachine {
         this.githubToken!,
       );
 
+      // Persist PR record so Phase 5 / REST endpoints can read durable PR state
+      await this.prisma.pullRequest.upsert({
+        where: { runId: this.runId },
+        create: {
+          runId: this.runId,
+          githubPrNumber: prNumber,
+          githubPrUrl: prUrl,
+          title: prTitle,
+          body: prBody,
+          branchName,
+          status: 'open',
+        },
+        update: {
+          githubPrNumber: prNumber,
+          githubPrUrl: prUrl,
+          status: 'open',
+        },
+      });
+
       await this.completeStep('open_pr');
       await this.transition('complete', 'finalize', 'Run complete');
       await this.completeStep('finalize');

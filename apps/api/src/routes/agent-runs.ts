@@ -93,7 +93,7 @@ export async function agentRunsRoute(
       return new Promise<void>((resolve) => {
         const onEvent = (data: AgentSSEEvent) => {
           reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-          if (data.type === 'run_completed' || data.type === 'run_failed') {
+          if (data.type === 'run_completed' || data.type === 'run_failed' || data.type === 'run_cancelled') {
             emitter.off('event', onEvent);
             reply.raw.end();
             resolve();
