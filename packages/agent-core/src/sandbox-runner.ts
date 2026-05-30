@@ -204,7 +204,9 @@ export class SandboxRunner {
     return new Promise<TestRunResult>((resolve) => {
       const proc = spawn(cmd, args, {
         cwd: opts.repoPath,
-        shell: false,
+        // shell: true resolves bare commands (e.g. npm → npm.cmd on Windows)
+        // and prevents unhandled ENOENT when the binary doesn't exist
+        shell: true,
       });
 
       const stdoutChunks: Buffer[] = [];
@@ -224,6 +226,19 @@ export class SandboxRunner {
         timedOut = true;
         proc.kill('SIGKILL');
       }, opts.timeoutMs);
+
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({
+          exitCode: 1,
+          stdout: '',
+          stderr: err.message,
+          durationMs: Date.now() - start,
+          sandboxed: false,
+          timedOut: false,
+          dockerImage: null,
+        });
+      });
 
       proc.on('close', (code) => {
         clearTimeout(timer);

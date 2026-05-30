@@ -121,6 +121,21 @@ describe('SandboxRunner.run — onChunk streaming (child_process fallback)', () 
   });
 });
 
+describe('SandboxRunner.runInChildProcess — spawn error handling', () => {
+  it('resolves (does not crash) when the command binary does not exist', async () => {
+    const runner = new SandboxRunner();
+    const result = await (runner as any).runInChildProcess({
+      command: '__nonexistent_command_xyz__ --flag',
+      repoPath: process.cwd(),
+      timeoutMs: 5000,
+      onChunk: undefined,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBeTruthy();
+    expect(result.sandboxed).toBe(false);
+  });
+});
+
 describe('SandboxRunner.run — onChunk streaming (Docker path)', () => {
   it('calls onChunk via Docker stream when Docker available', async () => {
     const runner = new SandboxRunner();
