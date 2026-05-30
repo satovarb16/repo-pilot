@@ -12,7 +12,7 @@ Turborepo monorepo managed with `pnpm` workspaces:
 
 ```
 apps/
-  web/          Next.js 14 App Router frontend
+  web/          Next.js 15 App Router frontend
   api/          Fastify 4.x backend API
 packages/
   mcp-server/   repo-agent-mcp-server (stdio transport, spawned as child process)
@@ -98,19 +98,29 @@ Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-c
 
 ## Branch & Documentation Strategy
 
-- One branch per phase: `feat/phase-N-<description>` → PR → merge → delete branch
+- Branch naming: `feat/phase-{N}-{slice-label}` → PR → merge → delete branch
+  - Phases with a single PR use a short descriptor (e.g. `feat/phase-0-scaffold`, `feat/phase-1-agent-core`)
+  - Phases split into backend/frontend slices use `pr-{slice}-{layer}` (e.g. `feat/phase-2-pr-d1-backend`, `feat/phase-2-pr-d2-frontend`)
 - Documentation (`docs/`) is updated **after** the phase, task, or feature is fully done and stable — never speculatively
+- `CLAUDE.md` phases section must be updated when a PR is merged — not before
 
 ## Implementation Phases
 
-Development follows 5 phases defined in `docs/architecture.md` §14 (Phase 0 complete):
+Development follows 5 phases defined in `docs/architecture.md` §14:
 
 0. Monorepo scaffold + DB + layout shell ✓
-1. MCP server + repo analysis agent + GitHub clone (no inline tools — MCP from day one) — in progress
+1. MCP server + repo analysis agent + GitHub clone ✓
    - PR #5 ✓: shared types, SecretRedactor, PathValidator, EncryptionService
-   - Pending: MCP server, AgentStateMachine, ClaudeService, GitHubService, API routes, frontend
-2. File edit proposals + diff viewer + SSE
-3. Docker-sandboxed test runner + repair loop
+   - PR #7 ✓: MCP server (list_files, read_file, search_repo, get_diff, get_github_issue)
+   - PR #10 ✓: MCPClientManager, ClaudeService, AgentStateMachine, GitHubService
+   - PR #11 ✓: Backend API routes (repos, agent runs, SSE stream)
+   - PR #12 ✓: Frontend — Zustand store, ConnectRepoDialog, TaskComposer, TraceLog
+2. File edit proposals + diff viewer + SSE ✓
+   - PR #13/#14 ✓: propose_file_edit, write_file, approval endpoints, SSE
+   - PR #15 ✓: PlanApprovalCard, FileEditApproval, DiffViewer, MainPanel wiring
+3. Docker-sandboxed test runner + repair loop — in progress
+   - PR #16 open (D1 backend): SandboxRunner, run_tests MCP tool, repair loop, test approval gate
+   - D2 frontend: pending
 4. Branch, commit, PR integration
 5. Trace viewer, security hardening, demo polish
 
@@ -160,7 +170,7 @@ The web UI follows a **clean, minimal, and stylish with personality** design lan
 
 ## Code Comments
 
-Comment code only when the **why** is non-obvious to an external reader — complex algorithms, non-obvious invariants, workarounds for specific bugs, or surprising behavior. For all other code, add a brief orientation comment every ~20 lines so someone unfamiliar with the codebase can follow the flow without having to trace every call.
+This project overrides the global "no comments by default" rule. Add a brief orientation comment every ~20 lines so someone unfamiliar with the codebase can follow the flow without tracing every call.
 
 - Do **not** explain what the code does if well-named identifiers already make it clear
 - Do **not** add comments that will rot (e.g. referencing a specific issue number or caller name)
@@ -168,10 +178,9 @@ Comment code only when the **why** is non-obvious to an external reader — comp
 
 ## Tooling
 
-This project uses the **Superpowers plugin** for Claude Code. All sessions should check for and invoke relevant skills before acting. Key skills in use:
+This project uses the **gentle-ai SDD workflow** (see global CLAUDE.md for the full skill list and model assignments).
 
-- `superpowers:brainstorming` — before any new feature or significant behavior change
-- `superpowers:writing-plans` — before multi-step implementation tasks
-- `superpowers:test-driven-development` — before writing implementation code
-- `superpowers:systematic-debugging` — before proposing any bug fix
-- `superpowers:verification-before-completion` — before claiming work is done or creating PRs
+Project-specific overrides:
+- **Strict TDD mode is active** — every `sdd-apply` must follow test RED → implement GREEN. Do not skip.
+- Run `pnpm --filter @repo-pilot/agent-core build` before restarting the API after any change to `packages/agent-core` — the API imports from `dist/`, not source.
+- `code-review` before every push; `security-review` before merging anything that touches approval gates, secret redaction, or path validation.
