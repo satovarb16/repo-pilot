@@ -101,9 +101,15 @@ export const useAppStore = create<AppStore>()((set) => ({
     set((state) => ({ testRuns: [...state.testRuns, run] })),
 
   updateTestRun: (id, update) =>
-    set((state) => ({
-      testRuns: state.testRuns.map((r) => (r.id === id ? { ...r, ...update } : r)),
-    })),
+    set((state) => {
+      // Primary lookup by id; fall back to the in-flight row when the id was
+      // stored as a pending sentinel and the real DB UUID arrives on completion.
+      const target = state.testRuns.find((r) => r.id === id) ?? state.testRuns.find((r) => r.status === 'running')
+      if (!target) return state
+      return {
+        testRuns: state.testRuns.map((r) => (r === target ? { ...r, ...update } : r)),
+      }
+    }),
 
   setRepairAttempt: (attempt) => set({ repairAttempt: attempt }),
 

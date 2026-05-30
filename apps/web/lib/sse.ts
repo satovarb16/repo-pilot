@@ -30,9 +30,10 @@ export function useAgentStream(runId: string | null): void {
         console.log('[sse] edit_proposed', { origLen: event.originalContent?.length, propLen: event.proposedContent?.length })
         addPendingEdit({ changeId: event.changeId, filePath: event.filePath, diff: event.diff, originalContent: event.originalContent, proposedContent: event.proposedContent })
       } else if (event.type === 'test_run_started') {
-        // Push a running row — testRunId not known until completed; use a temp id
+        // Push a sentinel row — the real DB id arrives only on test_run_completed.
+        // updateTestRun will match this row by status === 'running' and replace the id.
         appendTestRun({
-          id: `pending-${Date.now()}`,
+          id: 'running',
           command: event.command,
           status: 'running',
           exitCode: null,

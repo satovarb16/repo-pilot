@@ -186,6 +186,25 @@ describe('Phase 3 test run state', () => {
     expect(testRuns[0].durationMs).toBe(1234)
   })
 
+  it('updateTestRun falls back to the running row when id does not match', () => {
+    // Simulates the case where the row was stored with a sentinel id and the
+    // real DB UUID arrives later on test_run_completed.
+    const sentinelRun: TestRunView = { ...runningRun, id: 'running' }
+    useAppStore.setState({ testRuns: [sentinelRun] })
+    useAppStore.getState().updateTestRun('clxxx1234567890', {
+      id: 'clxxx1234567890',
+      status: 'passed',
+      exitCode: 0,
+      stdout: 'All tests pass',
+      stderr: '',
+      durationMs: 999,
+    })
+    const { testRuns } = useAppStore.getState()
+    expect(testRuns[0].status).toBe('passed')
+    expect(testRuns[0].id).toBe('clxxx1234567890')
+    expect(testRuns[0].durationMs).toBe(999)
+  })
+
   it('setRepairAttempt updates repairAttempt', () => {
     useAppStore.getState().setRepairAttempt(1)
     expect(useAppStore.getState().repairAttempt).toBe(1)
