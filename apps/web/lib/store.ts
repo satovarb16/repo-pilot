@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AgentSSEEvent, FileChange, PlanProposal, Repository, RunStatus } from './types'
+import type { AgentSSEEvent, FileChange, PlanProposal, Repository, RunStatus, TestRunView } from './types'
 
 export type TracedEvent = AgentSSEEvent & { _key: number }
 
@@ -11,6 +11,10 @@ interface AppStore {
   runStatus: RunStatus
   planProposal: PlanProposal | null
   pendingEdits: FileChange[]
+  // Phase 3: test runner state
+  testRuns: TestRunView[]
+  repairAttempt: number
+  testApprovalCommand: string | null
   setRepos: (repos: Repository[]) => void
   addRepo: (repo: Repository) => void
   selectRepo: (id: string | null) => void
@@ -23,6 +27,12 @@ interface AppStore {
   addPendingEdit: (edit: Omit<FileChange, 'status'>) => void
   resolveEdit: (changeId: string, status: 'approved' | 'rejected') => void
   clearPendingEdits: () => void
+  // Phase 3 actions
+  appendTestRun: (run: TestRunView) => void
+  updateTestRun: (id: string, update: Partial<TestRunView>) => void
+  setRepairAttempt: (attempt: number) => void
+  setTestApproval: (command: string) => void
+  clearTestApproval: () => void
 }
 
 let _traceSeq = 0
@@ -35,6 +45,9 @@ export const useAppStore = create<AppStore>()((set) => ({
   runStatus: 'idle',
   planProposal: null,
   pendingEdits: [],
+  testRuns: [],
+  repairAttempt: 0,
+  testApprovalCommand: null,
 
   setRepos: (repos) => set({ repos }),
 
@@ -83,4 +96,18 @@ export const useAppStore = create<AppStore>()((set) => ({
     })),
 
   clearPendingEdits: () => set({ pendingEdits: [] }),
+
+  appendTestRun: (run) =>
+    set((state) => ({ testRuns: [...state.testRuns, run] })),
+
+  updateTestRun: (id, update) =>
+    set((state) => ({
+      testRuns: state.testRuns.map((r) => (r.id === id ? { ...r, ...update } : r)),
+    })),
+
+  setRepairAttempt: (attempt) => set({ repairAttempt: attempt }),
+
+  setTestApproval: (command) => set({ testApprovalCommand: command }),
+
+  clearTestApproval: () => set({ testApprovalCommand: null }),
 }))

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from './store'
-import type { AgentSSEEvent, Repository } from './types'
+import type { AgentSSEEvent, Repository, TestRunView } from './types'
 import type { TracedEvent } from './store'
 
 const testRepo: Repository = {
@@ -139,5 +139,66 @@ describe('pending edits state', () => {
     addPendingEdit({ changeId: 'c1', filePath: 'f.ts', diff: '', originalContent: '', proposedContent: '' })
     clearPendingEdits()
     expect(useAppStore.getState().pendingEdits).toHaveLength(0)
+  })
+})
+
+describe('Phase 3 test run state', () => {
+  const runningRun: TestRunView = {
+    id: 'tr-1',
+    command: 'npm test',
+    status: 'running',
+    exitCode: null,
+    stdout: '',
+    stderr: '',
+    durationMs: null,
+    sandboxed: true,
+  }
+
+  beforeEach(() => {
+    useAppStore.setState({
+      testRuns: [],
+      repairAttempt: 0,
+      testApprovalCommand: null,
+    })
+  })
+
+  it('appendTestRun pushes a running TestRunView to testRuns', () => {
+    useAppStore.getState().appendTestRun(runningRun)
+    const { testRuns } = useAppStore.getState()
+    expect(testRuns).toHaveLength(1)
+    expect(testRuns[0].id).toBe('tr-1')
+    expect(testRuns[0].status).toBe('running')
+  })
+
+  it('updateTestRun updates matching row status, exitCode, stdout, stderr', () => {
+    useAppStore.setState({ testRuns: [runningRun] })
+    useAppStore.getState().updateTestRun('tr-1', {
+      status: 'passed',
+      exitCode: 0,
+      stdout: 'All tests pass',
+      stderr: '',
+      durationMs: 1234,
+    })
+    const { testRuns } = useAppStore.getState()
+    expect(testRuns[0].status).toBe('passed')
+    expect(testRuns[0].exitCode).toBe(0)
+    expect(testRuns[0].stdout).toBe('All tests pass')
+    expect(testRuns[0].durationMs).toBe(1234)
+  })
+
+  it('setRepairAttempt updates repairAttempt', () => {
+    useAppStore.getState().setRepairAttempt(1)
+    expect(useAppStore.getState().repairAttempt).toBe(1)
+  })
+
+  it('setTestApproval sets testApprovalCommand with the given command', () => {
+    useAppStore.getState().setTestApproval('npm test')
+    expect(useAppStore.getState().testApprovalCommand).toBe('npm test')
+  })
+
+  it('clearTestApproval sets testApprovalCommand to null', () => {
+    useAppStore.setState({ testApprovalCommand: 'npm test' })
+    useAppStore.getState().clearTestApproval()
+    expect(useAppStore.getState().testApprovalCommand).toBeNull()
   })
 })

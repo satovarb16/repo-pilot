@@ -26,6 +26,17 @@ export type { AgentSSEEvent } from '@repo-pilot/shared'
 
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed'
 
+export interface TestRunView {
+  id: string
+  command: string
+  status: 'running' | 'passed' | 'failed'
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  durationMs: number | null
+  sandboxed: boolean
+}
+
 export interface ConnectRepoInput {
   githubRepoId: number
   owner: string
