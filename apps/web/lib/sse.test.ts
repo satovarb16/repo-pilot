@@ -50,7 +50,7 @@ describe('useAgentStream', () => {
   it('opens EventSource at the correct SSE URL when runId is provided', () => {
     renderHook(() => useAgentStream('run-123'))
     expect(MockEventSource.instances).toHaveLength(1)
-    expect(MockEventSource.instances[0].url).toBe('/api/v1/agent/runs/run-123/stream')
+    expect(MockEventSource.instances[0].url).toBe('http://localhost:3001/api/v1/agent/runs/run-123/stream')
   })
 
   it('appends parsed trace event to store on message', () => {
@@ -104,5 +104,59 @@ describe('useAgentStream', () => {
       filePath: 'src/foo.ts',
       diff: '--- a\n+++ b',
     })
+  })
+
+  it('dispatches test_run_started to appendTestRun with running status', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'test_run_started', command: 'npm test' }))
+    const { testRuns } = useAppStore.getState()
+    expect(testRuns).toHaveLength(1)
+    expect(testRuns[0].status).toBe('running')
+    expect(testRuns[0].command).toBe('npm test')
+  })
+
+  it('dispatches test_run_completed to updateTestRun using status-based fallback', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    // Start a run — the row is stored with the sentinel id 'running', not the real DB id.
+    es.emit(JSON.stringify({ type: 'test_run_started', command: 'npm test' }))
+    expect(useAppStore.getState().testRuns[0].id).toBe('running')
+
+    // Completion arrives with the real DB CUID — it will NOT match 'running',
+    // so updateTestRun must fall back to finding the row by status === 'running'.
+    const realDbId = 'clxxx1234567890'
+    es.emit(
+      JSON.stringify({
+        type: 'test_run_completed',
+        testRunId: realDbId,
+        status: 'passed',
+        exitCode: 0,
+        durationMs: 500,
+        sandboxed: true,
+        stdout: 'ok',
+        stderr: '',
+      }),
+    )
+    const { testRuns } = useAppStore.getState()
+    expect(testRuns[0].status).toBe('passed')
+    expect(testRuns[0].exitCode).toBe(0)
+    expect(testRuns[0].stdout).toBe('ok')
+    // Confirm the row now carries the real DB id
+    expect(testRuns[0].id).toBe(realDbId)
+  })
+
+  it('dispatches repair_started to setRepairAttempt', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'repair_started', attempt: 1, maxAttempts: 2 }))
+    expect(useAppStore.getState().repairAttempt).toBe(1)
+  })
+
+  it('dispatches approval_required {approvalType:test_run} to setTestApproval', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'approval_required', approvalType: 'test_run', command: 'npm test' }))
+    expect(useAppStore.getState().testApprovalCommand).toBe('npm test')
   })
 })
