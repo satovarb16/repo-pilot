@@ -65,7 +65,7 @@ export function MainPanel() {
           </div>
         ) : planProposal && activeRunId ? (
           <PlanApprovalCard runId={activeRunId} planText={planProposal.planText} />
-        ) : pendingEdits.length > 0 && activeRunId ? (
+        ) : pendingEdits.some((e) => e.status === 'pending') && activeRunId ? (
           <FileEditApproval runId={activeRunId} edits={pendingEdits} />
         ) : testApprovalCommand && activeRunId ? (
           <TestApprovalCard
