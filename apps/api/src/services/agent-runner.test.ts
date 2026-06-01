@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { AgentRunner } from './agent-runner.js'
+import { AgentRunner, ConcurrencyLimitError } from './agent-runner.js'
 
 // We test only the approval mechanism — no real DB or process needed
 const makeRunner = () =>
@@ -110,6 +110,104 @@ describe('AgentRunner PR approval mechanism', () => {
   it('resolvePRApproval is a no-op for unknown runId', () => {
     const runner = makeRunner()
     expect(() => runner.resolvePRApproval('unknown-run', true)).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 5 T07 — ConcurrencyLimitError + acquireSlot/releaseSlot
+// ---------------------------------------------------------------------------
+describe('AgentRunner concurrency cap', () => {
+  it('ConcurrencyLimitError is exported and is an Error subclass', () => {
+    const err = new ConcurrencyLimitError(2)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).toBeInstanceOf(ConcurrencyLimitError)
+    expect(err.name).toBe('ConcurrencyLimitError')
+  })
+
+  it('acquireSlot throws ConcurrencyLimitError when activeRuns meets the cap', () => {
+    const runner = new AgentRunner(
+      {} as never,
+      '/tmp/repos',
+      'fake-api-key',
+      '/fake/mcp-path',
+      undefined,
+      undefined,
+      1, // maxConcurrent = 1
+    )
+
+    ;(runner as any).activeRuns = 1
+    expect(() => runner.acquireSlot()).toThrow(ConcurrencyLimitError)
+  })
+
+  it('acquireSlot increments activeRuns when below the cap', () => {
+    const runner = new AgentRunner(
+      {} as never,
+      '/tmp/repos',
+      'fake-api-key',
+      '/fake/mcp-path',
+      undefined,
+      undefined,
+      2,
+    )
+
+    expect((runner as any).activeRuns).toBe(0)
+    runner.acquireSlot()
+    expect((runner as any).activeRuns).toBe(1)
+  })
+
+  it('releaseSlot decrements activeRuns', () => {
+    const runner = new AgentRunner(
+      {} as never,
+      '/tmp/repos',
+      'fake-api-key',
+      '/fake/mcp-path',
+      undefined,
+      undefined,
+      2,
+    )
+
+    ;(runner as any).activeRuns = 1
+    runner.releaseSlot()
+    expect((runner as any).activeRuns).toBe(0)
+  })
+
+  it('unlimited mode (maxConcurrent = 0) never throws ConcurrencyLimitError', () => {
+    const runner = new AgentRunner(
+      {} as never,
+      '/tmp/repos',
+      'fake-api-key',
+      '/fake/mcp-path',
+      undefined,
+      undefined,
+      0, // unlimited
+    )
+
+    ;(runner as any).activeRuns = 999
+    expect(() => runner.acquireSlot()).not.toThrow()
+  })
+
+  it('start() decrements activeRuns in finally when SM runs and settles', async () => {
+    const runner = new AgentRunner(
+      {} as never,
+      '/tmp/repos',
+      'fake-api-key',
+      '/fake/mcp-path',
+      undefined,
+      undefined,
+      5,
+    )
+
+    // Simulate slot already acquired by caller (as the route does)
+    runner.acquireSlot()
+    expect((runner as any).activeRuns).toBe(1)
+
+    // start() is fire-and-forget — SM runs in background, finally decrements
+    await runner.start('run-1', '/tmp/repo')
+    expect((runner as any).activeRuns).toBe(1) // still running
+
+    // Wait for SM to settle (will fail due to no real DB — that's fine)
+    await new Promise((r) => setTimeout(r, 50))
+    expect((runner as any).activeRuns).toBe(0)
   })
 })
 

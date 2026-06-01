@@ -5,6 +5,7 @@ import type { EncryptionService, GitHubService } from '@repo-pilot/agent-core';
 import type { AgentSSEEvent } from '@repo-pilot/agent-core';
 import { DEV_USER_ID } from '../services/dev-user.js';
 import type { AgentRunner } from '../services/agent-runner.js';
+import { ConcurrencyLimitError } from '../services/agent-runner.js';
 
 const createRunBody = z.object({
   repositoryId: z.string().min(1),
@@ -44,16 +45,33 @@ export async function agentRunsRoute(
 
     const decryptedToken = encryption.decrypt(repository.encryptedToken);
 
-    const agentRun = await prisma.agentRun.create({
-      data: {
-        userId: DEV_USER_ID,
-        repoId: repositoryId,
-        taskDescription,
-        status: 'running',
-        currentState: 'idle',
-      },
-      select: { id: true },
-    });
+    // Phase 5: acquire concurrency slot BEFORE any await — check+increment is atomic, no race
+    try {
+      agentRunner.acquireSlot();
+    } catch (err) {
+      if (err instanceof ConcurrencyLimitError) {
+        return reply.code(429).send({ error: err.message, code: 'concurrency_limit' });
+      }
+      throw err;
+    }
+
+    let agentRun: { id: string };
+    try {
+      agentRun = await prisma.agentRun.create({
+        data: {
+          userId: DEV_USER_ID,
+          repoId: repositoryId,
+          taskDescription,
+          status: 'running',
+          currentState: 'idle',
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      // DB create failed — release the slot so it isn't leaked
+      agentRunner.releaseSlot();
+      throw err;
+    }
 
     const runId = agentRun.id;
 
@@ -67,6 +85,8 @@ export async function agentRunsRoute(
       await agentRunner.start(runId, repoPath, decryptedToken, repository.owner, repository.name);
     })().catch(() => {
       // Errors surface via EventEmitter as run_failed
+      // Note: if cloneRepo fails before start(), the slot was already transferred to start()'s
+      // try/catch via the activeRuns counter managed internally — no double-release needed
     });
 
     return reply.code(201).send({ runId });

@@ -6,6 +6,7 @@ import { EncryptionService, type GitHubService } from '@repo-pilot/agent-core';
 import { agentRunsRoute } from './agent-runs.js';
 import { ensureDevUser, DEV_USER_ID } from '../services/dev-user.js';
 import type { AgentRunner } from '../services/agent-runner.js';
+import { ConcurrencyLimitError } from '../services/agent-runner.js';
 
 const prisma = new PrismaClient();
 
@@ -13,6 +14,8 @@ const prisma = new PrismaClient();
 const agentRunner = {
   register: vi.fn(),
   start: vi.fn().mockResolvedValue(undefined),
+  acquireSlot: vi.fn(), // Phase 5: concurrency gate
+  releaseSlot: vi.fn(),
   getEmitter: vi.fn<() => EventEmitter | undefined>(),
   resolvePlanApproval: vi.fn(),
   resolveEditApprovals: vi.fn(),
@@ -114,6 +117,47 @@ describe('Agent run routes', () => {
         },
       });
       expect(response.statusCode).toBe(404);
+    });
+
+    // Phase 5 T08 — concurrency limit → HTTP 429
+    it('returns 429 with concurrency_limit code when concurrency gate throws ConcurrencyLimitError', async () => {
+      agentRunner.acquireSlot.mockImplementationOnce(() => {
+        throw new ConcurrencyLimitError(2)
+      })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/agent/runs',
+        payload: {
+          repositoryId: testRepoId,
+          taskDescription: 'Task that hits cap',
+        },
+      })
+
+      expect(response.statusCode).toBe(429)
+      const body = response.json<{ error: string; code: string }>()
+      expect(body.code).toBe('concurrency_limit')
+    });
+
+    it('does NOT create an AgentRun row when ConcurrencyLimitError is thrown', async () => {
+      agentRunner.acquireSlot.mockImplementationOnce(() => {
+        throw new ConcurrencyLimitError(2)
+      })
+
+      const countBefore = await prisma.agentRun.count({ where: { repoId: testRepoId } })
+
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/agent/runs',
+        payload: {
+          repositoryId: testRepoId,
+          taskDescription: 'Task that hits cap',
+        },
+      })
+
+      const countAfter = await prisma.agentRun.count({ where: { repoId: testRepoId } })
+      // No new run row should have been created
+      expect(countAfter).toBe(countBefore)
     });
   });
 
