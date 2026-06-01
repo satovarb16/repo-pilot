@@ -121,7 +121,9 @@ Development follows 5 phases defined in `docs/architecture.md` §14:
 3. Docker-sandboxed test runner + repair loop ✓
    - PR #16 ✓ (D1 backend): SandboxRunner, run_tests MCP tool, repair loop, test approval gate
    - PR #17 ✓ (D2 frontend): TestApprovalCard, TestOutputPanel, SSE wiring, MainPanel conditional rendering
-4. Branch, commit, PR integration
+4. Branch, commit, PR integration ✓
+   - PR #21 ✓ (D1 backend): GitHubService push/PR, MCP tools (create_branch, commit_changes, open_pull_request), PR approval gate, SSE events
+   - PR #22 ✓ (D2 frontend): PRApprovalCard, SSE wiring (pr_approval_required, pr_opened), store PR state, MainPanel conditional rendering
 5. Trace viewer, security hardening, demo polish
 
 The first 10 concrete implementation tasks are listed in §15.
