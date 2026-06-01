@@ -10,6 +10,7 @@ import type { SandboxRunner } from './sandbox-runner.js';
 import type { AgentSSEEvent } from '@repo-pilot/shared';
 import type { GitHubService } from './github-service.js';
 import { composePRTitleAndBody } from './pr-composer.js';
+import type { SecretRedactor } from './secret-redactor.js';
 
 // Re-export so existing imports from agent-state-machine keep compiling
 export type { AgentSSEEvent } from '@repo-pilot/shared';
@@ -83,6 +84,9 @@ export class AgentStateMachine {
   private repairCount = 0;
   // Track whether the branch was pushed so we know whether to call deleteBranch on reject
   private branchPushed = false;
+  // Phase 5 T05: cumulative token totals for the run
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   constructor(
     private readonly runId: string,
@@ -102,6 +106,8 @@ export class AgentStateMachine {
     private readonly githubToken?: string,
     private readonly owner?: string,
     private readonly repo?: string,
+    // Phase 5 T04: optional SecretRedactor for tool input/output redaction at SSE boundary
+    private readonly secretRedactor?: SecretRedactor,
   ) {}
 
   start(): Promise<void> {
@@ -109,7 +115,38 @@ export class AgentStateMachine {
     return this.queue;
   }
 
+  // Phase 5 T05: accumulate token usage and emit SSE after each Claude call
+  private onUsage(inputTokens: number, outputTokens: number): void {
+    this.totalInputTokens += inputTokens;
+    this.totalOutputTokens += outputTokens;
+    this.emit({ type: 'token_usage', inputTokens: this.totalInputTokens, outputTokens: this.totalOutputTokens });
+  }
+
+  // Phase 5 T05: persist final token totals to DB on run end
+  private async persistTokenTotals(): Promise<void> {
+    if (this.totalInputTokens === 0 && this.totalOutputTokens === 0) return;
+    try {
+      await this.prisma.agentRun.update({
+        where: { id: this.runId },
+        data: { inputTokens: this.totalInputTokens, outputTokens: this.totalOutputTokens },
+      });
+    } catch {
+      // Non-fatal — token persist failure must not shadow the main run result
+    }
+  }
+
   private emit(event: AgentSSEEvent): void {
+    // Phase 5 T04: redact tool input/output before emitting to SSE consumers
+    if (event.type === 'tool_called' && this.secretRedactor) {
+      const redactJson = (value: unknown): unknown => {
+        try {
+          return JSON.parse(this.secretRedactor!.redact(JSON.stringify(value)));
+        } catch {
+          return value;
+        }
+      };
+      event = { ...event, input: redactJson(event.input), output: this.secretRedactor.redact(event.output) };
+    }
     this.emitter?.emit('event', event);
   }
 
@@ -149,6 +186,8 @@ export class AgentStateMachine {
         ],
         PHASE_1_TOOLS,
         tracingExecutor,
+        undefined,
+        (i, o) => this.onUsage(i, o),
       );
       await this.completeStep('generate_plan');
 
@@ -182,6 +221,8 @@ export class AgentStateMachine {
         ],
         PHASE_2_TOOLS,
         tracingExecutor,
+        undefined,
+        (i, o) => this.onUsage(i, o),
       );
 
       // Check for pending edits and gate on approval
@@ -242,6 +283,7 @@ export class AgentStateMachine {
       await this.completeStep('await_test_approval');
       await this.transition('complete', 'finalize', 'Run complete (tests skipped)');
       await this.completeStep('finalize');
+      await this.persistTokenTotals();
       this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
       return;
     }
@@ -299,6 +341,7 @@ export class AgentStateMachine {
 
       await this.transition('complete', 'finalize', 'Run complete');
       await this.completeStep('finalize');
+      await this.persistTokenTotals();
       this.emit({ type: 'run_completed', planJson: lastPlanMessage.content });
       return;
     }
@@ -335,7 +378,7 @@ export class AgentStateMachine {
       return output;
     };
 
-    await this.claudeService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor);
+    await this.claudeService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor, undefined, (i, o) => this.onUsage(i, o));
 
     // Re-run edit approval gate for repair edits
     const repairEdits = await this.prisma.fileChange.findMany({
@@ -470,6 +513,7 @@ export class AgentStateMachine {
       await this.transition('complete', 'finalize', 'Run complete');
       await this.completeStep('finalize');
 
+      await this.persistTokenTotals();
       this.emit({ type: 'pr_opened', prUrl, prNumber });
       this.emit({ type: 'run_completed', planJson: lastPlanMessage.content, prUrl });
     } catch (err) {
@@ -568,6 +612,8 @@ export class AgentStateMachine {
 
   private async fail(errorMessage: string): Promise<void> {
     try {
+      // Phase 5 T05: persist token totals before marking the run failed
+      await this.persistTokenTotals();
       await this.prisma.agentRun.update({
         where: { id: this.runId },
         data: { currentState: 'failed' },

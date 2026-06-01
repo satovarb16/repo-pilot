@@ -19,6 +19,7 @@ export type AgentSSEEvent =
   | { type: 'run_failed'; error: string }
   | { type: 'pr_opened'; prUrl: string; prNumber: number }
   | { type: 'run_cancelled' }
+  | { type: 'token_usage'; inputTokens: number; outputTokens: number }
 
 // ----- Enums -----
 

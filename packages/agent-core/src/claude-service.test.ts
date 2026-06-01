@@ -230,4 +230,54 @@ describe('ClaudeService', () => {
       expect.stringContaining('tokens:'),
     );
   });
+
+  // Phase 5 T03 — onUsage callback
+  it('calls onUsage with input and output token counts from end_turn response', async () => {
+    const onUsage = vi.fn();
+    getMockCreate(service).mockResolvedValueOnce(makeEndTurnResponse('Done.'));
+
+    await service.sendWithTools(
+      [{ role: 'user', content: 'Hello' }],
+      [],
+      async () => '',
+      undefined,
+      onUsage,
+    );
+
+    expect(onUsage).toHaveBeenCalledOnce();
+    expect(onUsage).toHaveBeenCalledWith(10, 5);
+  });
+
+  it('calls onUsage once per Claude API response (two calls = two onUsage invocations)', async () => {
+    const onUsage = vi.fn();
+    const mockCreate = getMockCreate(service);
+
+    mockCreate
+      .mockResolvedValueOnce({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'tu-1', name: 'list_files', input: {} }],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+      .mockResolvedValueOnce(makeEndTurnResponse('Done.'));
+
+    await service.sendWithTools(
+      [{ role: 'user', content: 'Go' }],
+      [],
+      async () => 'result',
+      undefined,
+      onUsage,
+    );
+
+    expect(onUsage).toHaveBeenCalledTimes(2);
+    expect(onUsage).toHaveBeenNthCalledWith(1, 20, 10);
+    expect(onUsage).toHaveBeenNthCalledWith(2, 10, 5);
+  });
+
+  it('does not fail when onUsage is not provided (backward compat)', async () => {
+    getMockCreate(service).mockResolvedValueOnce(makeEndTurnResponse('Done.'));
+
+    await expect(
+      service.sendWithTools([{ role: 'user', content: 'Hello' }], [], async () => ''),
+    ).resolves.not.toThrow();
+  });
 });

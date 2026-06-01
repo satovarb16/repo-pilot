@@ -88,5 +88,85 @@ describe('SecretRedactor', () => {
       expect(redactor.redact(input)).toContain('[REDACTED]');
       expect(redactor.redact(input)).not.toContain('abcDEF123456');
     });
+
+    // Phase 5 T02 — 6 new patterns (positive cases)
+
+    it('redacts Stripe live secret keys (sk_live_)', () => {
+      const input = 'STRIPE_SECRET=sk_live_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('sk_live_');
+    });
+
+    it('redacts JWT tokens (eyJ.eyJ. 3-part shape)', () => {
+      const input = 'token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+    });
+
+    it('redacts npm auth tokens (npm_)', () => {
+      const input = '//registry.npmjs.org/:_authToken=npm_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('npm_ABC');
+    });
+
+    it('redacts SendGrid API keys (SG.)', () => {
+      const input = 'SENDGRID_KEY=SG.ABCDEFGHIJKLMNOPQRSTUVwx.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('SG.');
+    });
+
+    it('redacts Twilio auth tokens (SK prefix + 32 hex)', () => {
+      const input = 'TWILIO_AUTH=SK0123456789abcdef0123456789abcdef';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('SK0123456789abcdef');
+    });
+
+    it('redacts Twilio SID tokens (AC prefix + 32 hex)', () => {
+      const input = 'TWILIO_SID=AC0123456789abcdef0123456789abcdef';
+      expect(redactor.redact(input)).toContain('[REDACTED]');
+      expect(redactor.redact(input)).not.toContain('AC0123456789abcdef');
+    });
+
+    it('redacts GCP SA JSON private_key field', () => {
+      const input = '{"private_key": "-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEA\\n-----END RSA PRIVATE KEY-----\\n"}';
+      const result = redactor.redact(input);
+      expect(result).toContain('[REDACTED]');
+      expect(result).not.toContain('MIIEowIBAAKCAQEA');
+    });
+
+    // Phase 5 T02 — 6 new patterns (negative cases — must NOT over-redact)
+
+    it('does NOT redact a short Stripe-looking string below minimum length', () => {
+      // sk_live_ requires at least 20 more chars
+      const input = 'sk_live_short';
+      expect(redactor.redact(input)).toBe(input);
+    });
+
+    it('does NOT redact single-part base64 that is not a JWT (no dots)', () => {
+      const input = 'eyJhbGciOiJIUzI1NiJ9'; // just one segment, no dots
+      expect(redactor.redact(input)).toBe(input);
+    });
+
+    it('does NOT redact npm_ token that is too short (needs 36 alphanum chars)', () => {
+      const input = 'npm_TOOSHORT';
+      expect(redactor.redact(input)).toBe(input);
+    });
+
+    it('does NOT redact a SendGrid-like key with wrong segment lengths', () => {
+      // Correct is 22 + 43; this has wrong lengths
+      const input = 'SG.TOOSHORT.TOOSHORT';
+      expect(redactor.redact(input)).toBe(input);
+    });
+
+    it('does NOT redact a Twilio-like prefix with wrong hex length (< 32)', () => {
+      const input = 'SK0123456789abcdef'; // only 16 hex chars, needs 32
+      expect(redactor.redact(input)).toBe(input);
+    });
+
+    it('does NOT redact a JSON key named private_key with an empty value', () => {
+      // Empty string between quotes — should stay unchanged
+      const input = '{"private_key": ""}';
+      expect(redactor.redact(input)).toBe(input);
+    });
   });
 });
