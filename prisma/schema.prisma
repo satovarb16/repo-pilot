@@ -45,6 +45,8 @@ model AgentRun {
   branchName      String?
   planJson        Json?
   summaryText     String?
+  inputTokens     Int?
+  outputTokens    Int?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   steps           AgentStep[]

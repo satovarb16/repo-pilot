@@ -1,3 +1,4 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MainPanel } from './MainPanel'
@@ -12,6 +13,8 @@ vi.mock('@/components/runs/FileEditApproval', () => ({ FileEditApproval: () => <
 vi.mock('@/components/runs/TestApprovalCard', () => ({ TestApprovalCard: () => <div>TestApprovalCard</div> }))
 vi.mock('@/components/runs/TestOutputPanel', () => ({ TestOutputPanel: () => <div>TestOutputPanel</div> }))
 vi.mock('@/components/runs/PRApprovalCard', () => ({ PRApprovalCard: () => <div>PRApprovalCard</div> }))
+vi.mock('@/components/EmptyState', () => ({ EmptyState: ({ title, hint }: { title: string; hint?: string }) => <div data-testid="empty-state">{title}{hint && ` — ${hint}`}</div> }))
+vi.mock('@/components/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <div data-testid="error-boundary">{children}</div> }))
 vi.mock('@/lib/api', () => ({
   approveTestRun: vi.fn().mockResolvedValue(undefined),
   rejectTestRun: vi.fn().mockResolvedValue(undefined),
@@ -43,6 +46,16 @@ describe('MainPanel', () => {
   it('shows select-repo prompt when no repo selected', () => {
     render(<MainPanel />)
     expect(screen.getByText(/select a repo/i)).toBeInTheDocument()
+  })
+
+  it('uses EmptyState component for the no-repo-selected state', () => {
+    render(<MainPanel />)
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+  })
+
+  it('wraps the panel content in an ErrorBoundary', () => {
+    render(<MainPanel />)
+    expect(screen.getByTestId('error-boundary')).toBeInTheDocument()
   })
 
   it('shows TaskComposer when selectedRepoId is set and no plan or edits pending', () => {

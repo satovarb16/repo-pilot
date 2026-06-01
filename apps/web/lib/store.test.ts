@@ -222,6 +222,51 @@ describe('Phase 3 test run state', () => {
   })
 })
 
+describe('Phase 5 token usage + connection error state', () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      tokenUsage: null,
+      connectionError: false,
+    })
+  })
+
+  it('setTokenUsage stores inputTokens and outputTokens', () => {
+    useAppStore.getState().setTokenUsage({ inputTokens: 100, outputTokens: 200 })
+    expect(useAppStore.getState().tokenUsage).toEqual({ inputTokens: 100, outputTokens: 200 })
+  })
+
+  it('setTokenUsage replaces previous value', () => {
+    useAppStore.getState().setTokenUsage({ inputTokens: 50, outputTokens: 80 })
+    useAppStore.getState().setTokenUsage({ inputTokens: 300, outputTokens: 400 })
+    expect(useAppStore.getState().tokenUsage).toEqual({ inputTokens: 300, outputTokens: 400 })
+  })
+
+  it('setConnectionError sets connectionError to true', () => {
+    useAppStore.getState().setConnectionError(true)
+    expect(useAppStore.getState().connectionError).toBe(true)
+  })
+
+  it('setConnectionError(false) clears connectionError', () => {
+    useAppStore.setState({ connectionError: true })
+    useAppStore.getState().setConnectionError(false)
+    expect(useAppStore.getState().connectionError).toBe(false)
+  })
+
+  it('setActiveRun resets tokenUsage and connectionError', () => {
+    useAppStore.setState({ tokenUsage: { inputTokens: 50, outputTokens: 60 }, connectionError: true })
+    useAppStore.getState().setActiveRun('run-new')
+    expect(useAppStore.getState().tokenUsage).toBeNull()
+    expect(useAppStore.getState().connectionError).toBe(false)
+  })
+
+  it('selectRepo resets tokenUsage and connectionError', () => {
+    useAppStore.setState({ tokenUsage: { inputTokens: 50, outputTokens: 60 }, connectionError: true })
+    useAppStore.getState().selectRepo('repo-1')
+    expect(useAppStore.getState().tokenUsage).toBeNull()
+    expect(useAppStore.getState().connectionError).toBe(false)
+  })
+})
+
 describe('Phase 4 PR state', () => {
   beforeEach(() => {
     useAppStore.setState({

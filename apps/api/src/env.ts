@@ -9,6 +9,8 @@ export const envSchema = z.object({
   MCP_SERVER_PATH: z.string().min(1),
   // Optional — when absent, SandboxRunner falls back to child_process
   DOCKER_SOCKET: z.string().optional(),
+  // Concurrency cap: max simultaneous active agent runs. 0 = unlimited (default 2).
+  MAX_CONCURRENT_RUNS: z.coerce.number().int().min(0).default(2),
 });
 
 export type Env = z.infer<typeof envSchema>;

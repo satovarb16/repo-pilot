@@ -6,6 +6,7 @@ import { listRepos } from '@/lib/api'
 import { RepoListItem } from '@/components/repos/RepoListItem'
 import { ConnectRepoDialog } from '@/components/repos/ConnectRepoDialog'
 import { Separator } from '@/components/ui/separator'
+import { EmptyState } from '@/components/EmptyState'
 
 export function Sidebar() {
   const repos = useAppStore((s) => s.repos)
@@ -25,7 +26,15 @@ export function Sidebar() {
           Repos
         </p>
         {repos.length === 0 ? (
-          <p className="text-xs text-muted-foreground px-1 mb-2">No repos connected</p>
+          <EmptyState
+            icon={
+              <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+              </svg>
+            }
+            title="No repos connected"
+            hint="Connect a repo to get started"
+          />
         ) : (
           <div className="space-y-0.5 mb-2">
             {repos.map((repo) => (

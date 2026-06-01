@@ -39,6 +39,7 @@ export class ClaudeService {
     tools: Anthropic.Tool[],
     toolExecutor: (name: string, args: Record<string, unknown>) => Promise<string>,
     systemPrompt?: string,
+    onUsage?: (inputTokens: number, outputTokens: number) => void,
   ): Promise<Anthropic.MessageParam[]> {
     const current = [...messages];
     let toolIterations = 0;
@@ -49,6 +50,8 @@ export class ClaudeService {
       console.log(
         `[ClaudeService] tokens: input=${response.usage.input_tokens} output=${response.usage.output_tokens}`,
       );
+      // Phase 5 T03: report usage to caller if callback provided
+      onUsage?.(response.usage.input_tokens, response.usage.output_tokens);
 
       if (response.stop_reason === 'end_turn') {
         current.push({ role: 'assistant', content: response.content });

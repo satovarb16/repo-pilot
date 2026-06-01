@@ -35,6 +35,8 @@ describe('useAgentStream', () => {
       activeRunId: null,
       traceEvents: [],
       runStatus: 'idle',
+      tokenUsage: null,
+      connectionError: false,
     })
   })
 
@@ -193,12 +195,37 @@ describe('useAgentStream', () => {
     expect(es.closed).toBe(true)
   })
 
-  it('onerror clears prApproval before setting runStatus failed', () => {
-    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+  it('onerror clears prApproval and sets runStatus failed when run is active', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' }, runStatus: 'running' })
     renderHook(() => useAgentStream('run-123'))
     const es = MockEventSource.instances[0]
     es.onerror?.(new Event('error'))
     expect(useAppStore.getState().prApproval).toBeNull()
     expect(useAppStore.getState().runStatus).toBe('failed')
+  })
+
+  it('dispatches token_usage event to setTokenUsage', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'token_usage', inputTokens: 120, outputTokens: 340 }))
+    expect(useAppStore.getState().tokenUsage).toEqual({ inputTokens: 120, outputTokens: 340 })
+  })
+
+  it('onerror sets connectionError and runStatus=failed when run is running', () => {
+    useAppStore.setState({ runStatus: 'running' })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.onerror?.(new Event('error'))
+    expect(useAppStore.getState().connectionError).toBe(true)
+    expect(useAppStore.getState().runStatus).toBe('failed')
+  })
+
+  it('onerror does NOT overwrite runStatus when run already completed', () => {
+    useAppStore.setState({ runStatus: 'completed' })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.onerror?.(new Event('error'))
+    expect(useAppStore.getState().connectionError).toBe(false)
+    expect(useAppStore.getState().runStatus).toBe('completed')
   })
 })

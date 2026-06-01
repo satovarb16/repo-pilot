@@ -930,6 +930,227 @@ describe('AgentStateMachine opening_pr execution sequence (D1-9)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Phase 5 T04 — SecretRedactor injection: tool_called input/output redaction
+// ---------------------------------------------------------------------------
+describe('AgentStateMachine Phase 5 T04 — tool_called redaction', () => {
+  it('redacts secrets in tool_called input before SSE emission', async () => {
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    // Inject a secret via the MCP callTool stub output — but more importantly test input
+    // We override the tool call so the input contains a known Stripe key
+    const secretKey = 'sk_live_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'
+    const mcpWithSecret = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      // Return the secret in the output as well
+      callTool: vi.fn().mockResolvedValue(`files: ${secretKey}`),
+    }
+
+    // Use a claude mock that triggers a tool call with a secret in the input
+    const claudeWithToolCall = {
+      sendWithTools: vi.fn().mockImplementation(
+        async (
+          _msgs: unknown,
+          _tools: unknown,
+          executor: (name: string, args: Record<string, unknown>) => Promise<string>,
+        ) => {
+          // Simulate Claude calling a tool with a secret in args
+          await executor('read_file', { path: `secret=${secretKey}` })
+          return [
+            { role: 'user', content: 'task' },
+            { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+          ]
+        },
+      ),
+    }
+
+    const { SecretRedactor } = await import('./secret-redactor.js')
+    const redactor = new SecretRedactor()
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      makePrisma() as never,
+      claudeWithToolCall as never,
+      mcpWithSecret as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      redactor,
+    )
+
+    await sm.start()
+
+    const toolEvents = events.filter((e) => e.type === 'tool_called') as Array<{
+      type: 'tool_called'; name: string; input: unknown; output: string
+    }>
+    expect(toolEvents.length).toBeGreaterThan(0)
+
+    const allToolJson = JSON.stringify(toolEvents)
+    expect(allToolJson).not.toContain(secretKey)
+    expect(allToolJson).toContain('[REDACTED]')
+  })
+
+  it('does not affect tool_called events when no secrets are present', async () => {
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    const { SecretRedactor } = await import('./secret-redactor.js')
+    const redactor = new SecretRedactor()
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      makePrisma() as never,
+      makeClaude() as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      redactor,
+    )
+
+    await sm.start()
+
+    const toolEvents = events.filter((e) => e.type === 'tool_called')
+    expect(toolEvents.length).toBeGreaterThan(0)
+    // No secrets → output should remain unchanged (e.g. 'file1.ts\nfile2.ts')
+    const first = toolEvents[0] as { output: string }
+    expect(first.output).toContain('file1.ts')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 5 T05 — Token accumulation, token_usage SSE emission, DB persistence
+// ---------------------------------------------------------------------------
+describe('AgentStateMachine Phase 5 T05 — token accumulation and emission', () => {
+  it('emits token_usage SSE event after each onUsage callback with running totals', async () => {
+    const emitter = new EventEmitter()
+    const events: AgentSSEEvent[] = []
+    emitter.on('event', (e: AgentSSEEvent) => events.push(e))
+
+    // Claude mock that triggers onUsage twice (two API calls: plan + edit)
+    const claudeWithUsage = {
+      sendWithTools: vi.fn().mockImplementation(
+        async (
+          _msgs: unknown,
+          _tools: unknown,
+          _executor: unknown,
+          _system: unknown,
+          onUsage?: (i: number, o: number) => void,
+        ) => {
+          onUsage?.(100, 50)
+          return [
+            { role: 'user', content: 'task' },
+            { role: 'assistant', content: [{ type: 'text', text: 'plan done' }] },
+          ]
+        },
+      ),
+    }
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      makePrisma() as never,
+      claudeWithUsage as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+      emitter,
+    )
+
+    await sm.start()
+
+    const tokenEvents = events.filter((e) => e.type === 'token_usage') as Array<{
+      type: 'token_usage'; inputTokens: number; outputTokens: number
+    }>
+    expect(tokenEvents.length).toBeGreaterThan(0)
+
+    // First event should have 100/50 (from plan)
+    expect(tokenEvents[0].inputTokens).toBe(100)
+    expect(tokenEvents[0].outputTokens).toBe(50)
+
+    // Second event should have 200/100 (cumulative after edit)
+    if (tokenEvents.length >= 2) {
+      expect(tokenEvents[1].inputTokens).toBe(200)
+      expect(tokenEvents[1].outputTokens).toBe(100)
+    }
+  })
+
+  it('persists final token totals on prisma.agentRun.update at run_completed', async () => {
+    const prismaFake = makePrisma()
+
+    const claudeWithUsage = {
+      sendWithTools: vi.fn().mockImplementation(
+        async (
+          _msgs: unknown,
+          _tools: unknown,
+          _executor: unknown,
+          _system: unknown,
+          onUsage?: (i: number, o: number) => void,
+        ) => {
+          onUsage?.(200, 80)
+          return [
+            { role: 'user', content: 'task' },
+            { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+          ]
+        },
+      ),
+    }
+
+    const sm = new AgentStateMachine(
+      'run-1',
+      prismaFake as never,
+      claudeWithUsage as never,
+      makeMCP() as never,
+      '/tmp/repo',
+      vi.fn().mockResolvedValue(true),
+      vi.fn().mockResolvedValue({ approved: [], rejected: [] }),
+      makeMockSandboxRunner() as never,
+      'npm test',
+      vi.fn().mockResolvedValue(true),
+    )
+
+    await sm.start()
+
+    // Verify prisma.agentRun.update was called with token data at some point
+    const updateCalls = (prismaFake.agentRun.update as ReturnType<typeof vi.fn>).mock.calls
+    const tokenUpdateCall = updateCalls.find(
+      (call: unknown[]) =>
+        (call[0] as { data?: { inputTokens?: unknown } })?.data?.inputTokens !== undefined,
+    )
+    expect(tokenUpdateCall).toBeDefined()
+
+    const updateData = (tokenUpdateCall![0] as { data: { inputTokens: number; outputTokens: number } }).data
+    // sendWithTools is called twice (plan + edit), each fires onUsage(200, 80), total 400/160
+    expect(updateData.inputTokens).toBe(400)
+    expect(updateData.outputTokens).toBe(160)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // D1-13 — Security: token never surfaces in SSE payloads
 // ---------------------------------------------------------------------------
 describe('security invariants (D1-13)', () => {

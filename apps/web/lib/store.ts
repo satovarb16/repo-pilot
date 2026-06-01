@@ -19,6 +19,9 @@ interface AppStore {
   prApproval: { prTitle: string; prBody: string } | null
   prUrl: string | null
   prNumber: number | null
+  // Phase 5: token usage + SSE connection error
+  tokenUsage: { inputTokens: number; outputTokens: number } | null
+  connectionError: boolean
   setRepos: (repos: Repository[]) => void
   addRepo: (repo: Repository) => void
   selectRepo: (id: string | null) => void
@@ -41,6 +44,9 @@ interface AppStore {
   setPRApproval: (approval: { prTitle: string; prBody: string }) => void
   clearPRApproval: () => void
   setPROpened: (data: { prUrl: string; prNumber: number }) => void
+  // Phase 5 actions
+  setTokenUsage: (t: { inputTokens: number; outputTokens: number }) => void
+  setConnectionError: (v: boolean) => void
 }
 
 let _traceSeq = 0
@@ -59,6 +65,8 @@ export const useAppStore = create<AppStore>()((set) => ({
   prApproval: null,
   prUrl: null,
   prNumber: null,
+  tokenUsage: null,
+  connectionError: false,
 
   setRepos: (repos) => set({ repos }),
 
@@ -70,9 +78,9 @@ export const useAppStore = create<AppStore>()((set) => ({
     })),
 
   selectRepo: (id) =>
-    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle', planProposal: null, pendingEdits: [], prApproval: null, prUrl: null, prNumber: null }),
+    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle', planProposal: null, pendingEdits: [], prApproval: null, prUrl: null, prNumber: null, tokenUsage: null, connectionError: false }),
 
-  setActiveRun: (runId) => set({ activeRunId: runId, runStatus: 'running', prApproval: null, prUrl: null, prNumber: null }),
+  setActiveRun: (runId) => set({ activeRunId: runId, runStatus: 'running', prApproval: null, prUrl: null, prNumber: null, tokenUsage: null, connectionError: false }),
 
   // Cap at 500 entries — drop the oldest when the buffer is full
   appendTraceEvent: (event) =>
@@ -134,4 +142,9 @@ export const useAppStore = create<AppStore>()((set) => ({
   clearPRApproval: () => set({ prApproval: null }),
 
   setPROpened: ({ prUrl, prNumber }) => set({ prUrl, prNumber, prApproval: null }),
+
+  // Phase 5: token usage + connection error actions
+  setTokenUsage: (t) => set({ tokenUsage: t }),
+
+  setConnectionError: (v) => set({ connectionError: v }),
 }))
