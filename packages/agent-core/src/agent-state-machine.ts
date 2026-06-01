@@ -8,6 +8,7 @@ import type { MCPClientManager } from './mcp-client-manager.js';
 import { PathValidator } from './path-validator.js';
 import type { SandboxRunner } from './sandbox-runner.js';
 import type { AgentSSEEvent } from '@repo-pilot/shared';
+import { FileChangeType } from '@repo-pilot/shared';
 import type { GitHubService } from './github-service.js';
 import { composePRTitleAndBody } from './pr-composer.js';
 import type { SecretRedactor } from './secret-redactor.js';
@@ -163,14 +164,7 @@ export class AgentStateMachine {
       await this.mcpClientManager.start();
       mcpStarted = true;
 
-      const tracingExecutor = async (name: string, args: Record<string, unknown>): Promise<string> => {
-        if (name === 'propose_file_edit') {
-          return await this.handleProposeFileEdit(args);
-        }
-        const output = await this.mcpClientManager.callTool(name, args);
-        this.emit({ type: 'tool_called', name, input: args, output });
-        return output;
-      };
+      const tracingExecutor = this.makeTracingExecutor();
 
       const repoFiles = await tracingExecutor('list_files', {});
       await this.completeStep('analyze_repo');
@@ -369,14 +363,7 @@ export class AgentStateMachine {
       },
     ];
 
-    const tracingExecutor = async (name: string, args: Record<string, unknown>): Promise<string> => {
-      if (name === 'propose_file_edit') {
-        return await this.handleProposeFileEdit(args);
-      }
-      const output = await this.mcpClientManager.callTool(name, args);
-      this.emit({ type: 'tool_called', name, input: args, output });
-      return output;
-    };
+    const tracingExecutor = this.makeTracingExecutor();
 
     await this.claudeService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor, undefined, (i, o) => this.onUsage(i, o));
 
@@ -564,7 +551,7 @@ export class AgentStateMachine {
       data: {
         runId: this.runId,
         filePath,
-        changeType: normalizedOriginal === '' ? 'create' : 'edit',
+        changeType: normalizedOriginal === '' ? FileChangeType.CREATE : FileChangeType.UPDATE,
         originalContent: normalizedOriginal,
         proposedContent: normalizedProposed,
         diffContent: diff,
@@ -627,6 +614,17 @@ export class AgentStateMachine {
     } catch {
       // best-effort — original error is re-thrown by caller
     }
+  }
+
+  private makeTracingExecutor(): (name: string, args: Record<string, unknown>) => Promise<string> {
+    return async (name: string, args: Record<string, unknown>): Promise<string> => {
+      if (name === 'propose_file_edit') {
+        return await this.handleProposeFileEdit(args);
+      }
+      const output = await this.mcpClientManager.callTool(name, args);
+      this.emit({ type: 'tool_called', name, input: args, output });
+      return output;
+    };
   }
 }
 

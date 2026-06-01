@@ -80,13 +80,18 @@ export async function agentRunsRoute(
 
     // Fire and forget: clone repo then start agent loop
     // D1-10: token threaded explicitly into start() — never persisted beyond encrypted column
+    let startCalled = false;
     ;(async () => {
       const repoPath = await githubService.cloneRepo(repository.cloneUrl, repository.id, decryptedToken);
+      startCalled = true;
       await agentRunner.start(runId, repoPath, decryptedToken, repository.owner, repository.name);
     })().catch(() => {
-      // Errors surface via EventEmitter as run_failed
-      // Note: if cloneRepo fails before start(), the slot was already transferred to start()'s
-      // try/catch via the activeRuns counter managed internally — no double-release needed
+      // If cloneRepo threw before start() was called, we own the slot and must release it.
+      // If start() threw, it manages the slot itself via its own finally/catch blocks.
+      if (!startCalled) {
+        agentRunner.releaseSlot();
+        agentRunner.getEmitter(runId).emit('event', { type: 'run_failed', error: 'Failed to clone repository' } satisfies AgentSSEEvent);
+      }
     });
 
     return reply.code(201).send({ runId });

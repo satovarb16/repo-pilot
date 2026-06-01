@@ -136,6 +136,8 @@ export interface AgentRun {
   branchName: string | null;
   planJson: unknown | null;
   summaryText: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
   createdAt: Date;
   updatedAt: Date;
 }

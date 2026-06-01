@@ -152,6 +152,8 @@ Cut everything below until the MVP demo is rock solid:
                      └─────────────────────────┘
 ```
 
+**Implementation note:** MCP Resources and MCP Prompts shown in the diagram were not implemented. The agent uses direct tool calls only.
+
 ---
 
 ## 6. Frontend Design Specification
@@ -240,6 +242,10 @@ Small counter in header: `~2.1k tokens used`. Updated after each Claude API call
 **Base path:** `/api/v1`
 
 ### Endpoint Specification
+
+**Implementation note:** The routes below are the original design reference. The routes actually implemented are:
+`POST /api/v1/repositories`, `GET /api/v1/repositories`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/:id/stream` (SSE), `POST /api/v1/agent/runs/:runId/approve-plan`, `PATCH /api/v1/agent/runs/:runId/file-changes/:changeId`, `POST /api/v1/agent/runs/:runId/approve-test-run`, `GET /api/v1/agent/runs/:id/test-results`, `POST /api/v1/agent/runs/:runId/approve-pr`, `POST /api/v1/agent/runs/:runId/reject-pr`, `GET /health`.
+The following designed routes were not implemented: `GET /repos/:id/issues`, `GET /agent/runs` (list), `GET /agent/runs/:id` (single run), `GET /agent/runs/:id/trace`, `GET /agent/runs/:id/diff`. `POST /repos/connect` was redesigned as `POST /api/v1/repositories`.
 
 ```
 POST   /repos/connect
@@ -842,6 +848,8 @@ Write a GitHub pull request title (under 70 characters) and body
 ---
 
 ## 13. MCP Tool Definitions
+
+**Implementation note:** Only the five read tools below were implemented in the MCP server. Write and destructive operations (`propose_file_edit`, `write_file`, `run_tests`, `create_branch`, `commit_changes`, `open_pull_request`) are handled directly by `AgentStateMachine` — the state machine calls `GitHubService` and `SandboxRunner` after approval gates resolve, rather than routing through the MCP protocol.
 
 Permission levels: `read` (auto-approved), `write-pending` (requires user approval), `destructive` (requires explicit PR approval).
 
