@@ -85,16 +85,19 @@ export function useAgentStream(runId: string | null): void {
     }
 
     es.onerror = () => {
-      // Only flag a connection error when the run is still active — a normal
-      // terminal close (run_completed, run_failed) will have already changed
-      // runStatus before the EventSource fires onerror.
       const currentStatus = useAppStore.getState().runStatus
+      // Only act on errors while the run is active — a normal terminal close
+      // (run_completed, run_failed, run_cancelled) already updated runStatus
+      // via onmessage and called es.close(), so onerror arriving after that
+      // must not overwrite the final status or show a spurious disconnect banner.
       if (currentStatus === 'running') {
         setConnectionError(true)
+        // Clear all pending approval gates — the run is dead
+        clearPRApproval()
+        useAppStore.getState().clearPlanProposal()
+        useAppStore.getState().clearTestApproval()
+        setRunStatus('failed')
       }
-      // Clear any pending approval gate — the run is dead
-      clearPRApproval()
-      setRunStatus('failed')
       es.close()
     }
 

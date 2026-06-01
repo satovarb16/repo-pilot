@@ -98,11 +98,13 @@ describe('TraceLog', () => {
 
   // --- T13: SSE disconnect banner ---
 
-  it('shows disconnect banner when connectionError is true and run is running', () => {
+  // Banner shows when connectionError=true AND runStatus='failed'
+  // (onerror sets both in the same batch — runStatus is 'failed' by render time)
+  it('shows disconnect banner when connectionError is true and runStatus is failed', () => {
     mockStore.mockReturnValue({
       ...baseStore,
       activeRunId: 'run-1',
-      runStatus: 'running',
+      runStatus: 'failed',
       connectionError: true,
     })
     render(<TraceLog />)
@@ -113,19 +115,19 @@ describe('TraceLog', () => {
     mockStore.mockReturnValue({
       ...baseStore,
       activeRunId: 'run-1',
-      runStatus: 'running',
+      runStatus: 'failed',
       connectionError: false,
     })
     render(<TraceLog />)
     expect(screen.queryByText(/connection lost/i)).not.toBeInTheDocument()
   })
 
-  it('does not show disconnect banner when run is completed (not running)', () => {
+  it('does not show disconnect banner when run completed normally (connectionError stays false)', () => {
     mockStore.mockReturnValue({
       ...baseStore,
       activeRunId: 'run-1',
       runStatus: 'completed',
-      connectionError: true,
+      connectionError: false,
     })
     render(<TraceLog />)
     expect(screen.queryByText(/connection lost/i)).not.toBeInTheDocument()
@@ -136,7 +138,7 @@ describe('TraceLog', () => {
     mockStore.mockReturnValue({
       ...baseStore,
       activeRunId: 'run-1',
-      runStatus: 'running',
+      runStatus: 'failed',
       connectionError: true,
       setConnectionError,
     })

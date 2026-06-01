@@ -108,8 +108,8 @@ export function TraceLog() {
 
   return (
     <div className="h-full overflow-y-auto font-mono text-xs p-2 space-y-0.5">
-      {/* SSE disconnect banner — only shown when run is still active */}
-      {connectionError && runStatus === 'running' && (
+      {/* SSE disconnect banner — shown when connection dropped on an active run (runStatus is 'failed' by the time we render) */}
+      {connectionError && runStatus === 'failed' && (
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 mb-1 rounded bg-red-950/60 border border-red-800/50 text-red-300">
           <span>Connection lost — stream ended</span>
           <button
