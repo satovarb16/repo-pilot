@@ -15,6 +15,10 @@ interface AppStore {
   testRuns: TestRunView[]
   repairAttempt: number
   testApprovalCommand: string | null
+  // Phase 4: PR state
+  prApproval: { prTitle: string; prBody: string } | null
+  prUrl: string | null
+  prNumber: number | null
   setRepos: (repos: Repository[]) => void
   addRepo: (repo: Repository) => void
   selectRepo: (id: string | null) => void
@@ -33,6 +37,10 @@ interface AppStore {
   setRepairAttempt: (attempt: number) => void
   setTestApproval: (command: string) => void
   clearTestApproval: () => void
+  // Phase 4 actions
+  setPRApproval: (approval: { prTitle: string; prBody: string }) => void
+  clearPRApproval: () => void
+  setPROpened: (data: { prUrl: string; prNumber: number }) => void
 }
 
 let _traceSeq = 0
@@ -48,6 +56,9 @@ export const useAppStore = create<AppStore>()((set) => ({
   testRuns: [],
   repairAttempt: 0,
   testApprovalCommand: null,
+  prApproval: null,
+  prUrl: null,
+  prNumber: null,
 
   setRepos: (repos) => set({ repos }),
 
@@ -59,9 +70,9 @@ export const useAppStore = create<AppStore>()((set) => ({
     })),
 
   selectRepo: (id) =>
-    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle', planProposal: null, pendingEdits: [] }),
+    set({ selectedRepoId: id, activeRunId: null, traceEvents: [], runStatus: 'idle', planProposal: null, pendingEdits: [], prApproval: null, prUrl: null, prNumber: null }),
 
-  setActiveRun: (runId) => set({ activeRunId: runId, runStatus: 'running' }),
+  setActiveRun: (runId) => set({ activeRunId: runId, runStatus: 'running', prApproval: null, prUrl: null, prNumber: null }),
 
   // Cap at 500 entries — drop the oldest when the buffer is full
   appendTraceEvent: (event) =>
@@ -116,4 +127,11 @@ export const useAppStore = create<AppStore>()((set) => ({
   setTestApproval: (command) => set({ testApprovalCommand: command }),
 
   clearTestApproval: () => set({ testApprovalCommand: null }),
+
+  // Phase 4: PR state actions
+  setPRApproval: (approval) => set({ prApproval: approval }),
+
+  clearPRApproval: () => set({ prApproval: null }),
+
+  setPROpened: ({ prUrl, prNumber }) => set({ prUrl, prNumber, prApproval: null }),
 }))

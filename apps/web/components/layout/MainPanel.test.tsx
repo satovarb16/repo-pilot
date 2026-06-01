@@ -11,6 +11,7 @@ vi.mock('@/components/runs/PlanApprovalCard', () => ({ PlanApprovalCard: () => <
 vi.mock('@/components/runs/FileEditApproval', () => ({ FileEditApproval: () => <div>FileEditApproval</div> }))
 vi.mock('@/components/runs/TestApprovalCard', () => ({ TestApprovalCard: () => <div>TestApprovalCard</div> }))
 vi.mock('@/components/runs/TestOutputPanel', () => ({ TestOutputPanel: () => <div>TestOutputPanel</div> }))
+vi.mock('@/components/runs/PRApprovalCard', () => ({ PRApprovalCard: () => <div>PRApprovalCard</div> }))
 vi.mock('@/lib/api', () => ({
   approveTestRun: vi.fn().mockResolvedValue(undefined),
   rejectTestRun: vi.fn().mockResolvedValue(undefined),
@@ -27,6 +28,9 @@ const baseStore = {
   testRuns: [],
   repairAttempt: 0,
   traceEvents: [],
+  prApproval: null,
+  prUrl: null,
+  prNumber: null,
   clearTestApproval: vi.fn(),
 }
 
@@ -97,5 +101,66 @@ describe('MainPanel', () => {
     })
     render(<MainPanel />)
     expect(screen.getByText('TestOutputPanel')).toBeInTheDocument()
+  })
+
+  it('shows PRApprovalCard when prApproval is set and activeRunId is set', () => {
+    mockStore.mockReturnValue({
+      ...baseStore,
+      selectedRepoId: 'repo-1',
+      activeRunId: 'run-1',
+      prApproval: { prTitle: 'feat: x', prBody: 'body' },
+    })
+    render(<MainPanel />)
+    expect(screen.getByText('PRApprovalCard')).toBeInTheDocument()
+  })
+
+  it('does not show PRApprovalCard when prApproval is set but activeRunId is null', () => {
+    mockStore.mockReturnValue({
+      ...baseStore,
+      selectedRepoId: 'repo-1',
+      activeRunId: null,
+      prApproval: { prTitle: 'feat: x', prBody: 'body' },
+    })
+    render(<MainPanel />)
+    expect(screen.queryByText('PRApprovalCard')).not.toBeInTheDocument()
+  })
+
+  it('shows PR link when prUrl and prNumber are set', () => {
+    mockStore.mockReturnValue({
+      ...baseStore,
+      selectedRepoId: 'repo-1',
+      activeRunId: 'run-1',
+      prUrl: 'https://github.com/owner/repo/pull/7',
+      prNumber: 7,
+      runStatus: 'completed',
+    })
+    render(<MainPanel />)
+    expect(screen.getByText(/PR #7/)).toBeInTheDocument()
+    const link = screen.getByRole('link')
+    expect(link.getAttribute('href')).toBe('https://github.com/owner/repo/pull/7')
+  })
+
+  it('does not show PRApprovalCard when prUrl is set (already approved)', () => {
+    mockStore.mockReturnValue({
+      ...baseStore,
+      selectedRepoId: 'repo-1',
+      activeRunId: 'run-1',
+      prUrl: 'https://github.com/owner/repo/pull/7',
+      prNumber: 7,
+      prApproval: null,
+    })
+    render(<MainPanel />)
+    expect(screen.queryByText('PRApprovalCard')).not.toBeInTheDocument()
+  })
+
+  it('shows run-cancelled indicator when runStatus is cancelled', () => {
+    mockStore.mockReturnValue({
+      ...baseStore,
+      selectedRepoId: 'repo-1',
+      activeRunId: 'run-1',
+      runStatus: 'cancelled',
+    })
+    render(<MainPanel />)
+    expect(screen.getByText(/run cancelled/i)).toBeInTheDocument()
   })
 })

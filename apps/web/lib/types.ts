@@ -24,7 +24,7 @@ export interface PlanProposal {
 // Do NOT redefine it here — import only.
 export type { AgentSSEEvent } from '@repo-pilot/shared'
 
-export type RunStatus = 'idle' | 'running' | 'completed' | 'failed'
+export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface TestRunView {
   id: string

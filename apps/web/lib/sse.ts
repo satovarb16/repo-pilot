@@ -11,6 +11,10 @@ export function useAgentStream(runId: string | null): void {
   const updateTestRun = useAppStore((s) => s.updateTestRun)
   const setRepairAttempt = useAppStore((s) => s.setRepairAttempt)
   const setTestApproval = useAppStore((s) => s.setTestApproval)
+  // Phase 4: PR event handlers
+  const setPRApproval = useAppStore((s) => s.setPRApproval)
+  const setPROpened = useAppStore((s) => s.setPROpened)
+  const clearPRApproval = useAppStore((s) => s.clearPRApproval)
 
   useEffect(() => {
     if (!runId) return
@@ -26,6 +30,17 @@ export function useAgentStream(runId: string | null): void {
         setPlanProposal({ planText: event.planText })
       } else if (event.type === 'approval_required' && event.approvalType === 'test_run') {
         setTestApproval(event.command)
+      } else if (event.type === 'approval_required' && event.approvalType === 'pr') {
+        // Gate reached — show PR approval card
+        setPRApproval({ prTitle: event.prTitle, prBody: event.prBody })
+      } else if (event.type === 'pr_opened') {
+        // PR created — surface the link and clear the approval card
+        setPROpened({ prUrl: event.prUrl, prNumber: event.prNumber })
+      } else if (event.type === 'run_cancelled') {
+        // Run rejected — clear PR approval card, set terminal state, close stream
+        clearPRApproval()
+        setRunStatus('cancelled')
+        es.close()
       } else if (event.type === 'edit_proposed') {
         console.log('[sse] edit_proposed', { origLen: event.originalContent?.length, propLen: event.proposedContent?.length })
         addPendingEdit({ changeId: event.changeId, filePath: event.filePath, diff: event.diff, originalContent: event.originalContent, proposedContent: event.proposedContent })
@@ -64,6 +79,8 @@ export function useAgentStream(runId: string | null): void {
     }
 
     es.onerror = () => {
+      // Clear any pending approval gate — the run is dead
+      clearPRApproval()
       setRunStatus('failed')
       es.close()
     }
@@ -71,5 +88,5 @@ export function useAgentStream(runId: string | null): void {
     return () => {
       es.close()
     }
-  }, [runId, appendTraceEvent, setRunStatus, setPlanProposal, addPendingEdit, appendTestRun, updateTestRun, setRepairAttempt, setTestApproval])
+  }, [runId, appendTraceEvent, setRunStatus, setPlanProposal, addPendingEdit, appendTestRun, updateTestRun, setRepairAttempt, setTestApproval, setPRApproval, setPROpened, clearPRApproval])
 }

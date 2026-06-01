@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { connectRepo, listRepos, startRun, ApiError, approvePlan, rejectPlan, resolveEdit } from './api'
+import { connectRepo, listRepos, startRun, ApiError, approvePlan, rejectPlan, resolveEdit, approvePR, rejectPR } from './api'
 import type { ConnectRepoInput } from './types'
 
 describe('API client', () => {
@@ -174,6 +174,47 @@ describe('API client', () => {
           body: JSON.stringify({ action: 'reject' }),
         }),
       )
+    })
+  })
+
+  describe('approvePR', () => {
+    it('sends POST to /agent/runs/:runId/approve-pr', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+      await approvePR('run-1')
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/approve-pr',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('throws ApiError on non-2xx', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: 'Wrong state' }) })
+      await expect(approvePR('run-1')).rejects.toThrow(ApiError)
+    })
+  })
+
+  describe('rejectPR', () => {
+    it('sends POST to /agent/runs/:runId/reject-pr', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+      await rejectPR('run-1')
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/reject-pr',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('sends optional reason in body when provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+      await rejectPR('run-1', 'not ready')
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v1/agent/runs/run-1/reject-pr',
+        expect.objectContaining({ body: JSON.stringify({ reason: 'not ready' }) }),
+      )
+    })
+
+    it('throws ApiError on non-2xx', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: 'Not found' }) })
+      await expect(rejectPR('run-1')).rejects.toThrow(ApiError)
     })
   })
 })

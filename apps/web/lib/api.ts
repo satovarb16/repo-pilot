@@ -85,6 +85,17 @@ export async function rejectTestRun(runId: string): Promise<void> {
   })
 }
 
+export async function approvePR(runId: string): Promise<void> {
+  await request(`/agent/runs/${runId}/approve-pr`, { method: 'POST' })
+}
+
+export async function rejectPR(runId: string, reason?: string): Promise<void> {
+  await request(`/agent/runs/${runId}/reject-pr`, {
+    method: 'POST',
+    body: reason !== undefined ? JSON.stringify({ reason }) : undefined,
+  })
+}
+
 import type { TestRunView } from './types'
 
 export async function fetchTestResults(runId: string): Promise<TestRunView[]> {

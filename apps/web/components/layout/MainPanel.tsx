@@ -7,6 +7,7 @@ import { PlanApprovalCard } from '@/components/runs/PlanApprovalCard'
 import { FileEditApproval } from '@/components/runs/FileEditApproval'
 import { TestApprovalCard } from '@/components/runs/TestApprovalCard'
 import { TestOutputPanel } from '@/components/runs/TestOutputPanel'
+import { PRApprovalCard } from '@/components/runs/PRApprovalCard'
 import { approveTestRun, rejectTestRun, fetchTestResults } from '@/lib/api'
 
 const TEST_OUTPUT_STATES = new Set(['running_tests', 'reviewing', 'repairing'])
@@ -19,7 +20,12 @@ export function MainPanel() {
   const testApprovalCommand = useAppStore((s) => s.testApprovalCommand)
   const testRuns = useAppStore((s) => s.testRuns)
   const repairAttempt = useAppStore((s) => s.repairAttempt)
+  const runStatus = useAppStore((s) => s.runStatus)
   const clearTestApproval = useAppStore((s) => s.clearTestApproval)
+  // Phase 4: PR state
+  const prApproval = useAppStore((s) => s.prApproval)
+  const prUrl = useAppStore((s) => s.prUrl)
+  const prNumber = useAppStore((s) => s.prNumber)
 
   // Derive machine state from SSE trace (last state_changed event)
   const traceEvents = useAppStore((s) => s.traceEvents)
@@ -73,6 +79,27 @@ export function MainPanel() {
             onApprove={handleApproveTestRun}
             onReject={handleRejectTestRun}
           />
+        ) : runStatus === 'cancelled' ? (
+          // Terminal cancelled state — checked before approval/PR states to prevent stale gates
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+            <p className="text-sm text-muted-foreground">Run cancelled</p>
+          </div>
+        ) : prApproval && activeRunId ? (
+          // PR gate — only reachable when run is active (not cancelled/failed)
+          <PRApprovalCard runId={activeRunId} prTitle={prApproval.prTitle} prBody={prApproval.prBody} />
+        ) : prUrl != null && prNumber != null ? (
+          // PR was opened — surface a minimal link; no approval card needed
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">Pull request opened</p>
+            <a
+              href={prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-blue-400 hover:underline"
+            >
+              PR #{prNumber}
+            </a>
+          </div>
         ) : inTestOutputState && activeRunId ? (
           <TestOutputPanel runs={testRuns} repairAttempt={repairAttempt} />
         ) : (
