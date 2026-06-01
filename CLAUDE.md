@@ -57,14 +57,13 @@ pnpm typecheck
 
 ### Request Flow
 
-Browser → Fastify API (REST + SSE) → AgentOrchestrator → MCPClientManager (stdio) → repo-agent-mcp-server → local repo clone / Docker sandbox / Claude API / GitHub API
+Browser → Fastify API (REST + SSE) → AgentRunner → MCPClientManager (stdio) → repo-agent-mcp-server → local repo clone / Docker sandbox / Claude API / GitHub API
 
 The frontend stays live via SSE (`GET /api/v1/agent/runs/:id/stream`), not polling.
 
 ### Key Backend Services
 
-- **AgentOrchestrator** — owns the `AgentStateMachine` per run; drives Claude API calls, MCP sessions, approval gates, and DB state transitions
-- **AgentRunner** — per-run `EventEmitter` map; enforces concurrency cap via `acquireSlot()` / `releaseSlot()` (`MAX_CONCURRENT_RUNS` env, default 2, 0 = unlimited); returns HTTP 429 when cap is exceeded
+- **AgentRunner** — per-run `EventEmitter` map; owns the `AgentStateMachine` per run; drives Claude API calls, MCP sessions, approval gates, and DB state transitions; enforces concurrency cap via `acquireSlot()` / `releaseSlot()` (`MAX_CONCURRENT_RUNS` env, default 2, 0 = unlimited); returns HTTP 429 when cap is exceeded
 - **MCPClientManager** — spawns `repo-agent-mcp-server` as a child process over stdio; wraps all tool calls with logging and error handling
 - **GitHubService** (Octokit) — clone, branch create, commit, PR. All write operations are gated by approval checks before this service is invoked
 - **SecretRedactor** — applied to all file contents and tool outputs before forwarding to Claude API; patterns cover `.env` key-value pairs, GitHub PATs, Stripe `sk_live_`, JWT (`eyJ.eyJ.`), npm tokens, SendGrid, Twilio (`SK`/`AC`), GCP service account `private_key`, private key PEM blocks, bearer tokens; redaction also applied to tool call **inputs** in SSE events before they reach the browser
@@ -82,12 +81,11 @@ Failed tests trigger `repairing` (max 2 iterations) before `failed`. Every state
 Runs as a sidecar process with `REPO_ROOT` env var. Operates on the local clone.
 
 - **Read tools** (`list_files`, `read_file`, `search_repo`, `get_diff`, `get_github_issue`) — auto-approved, work directly on the clone
-- **Write tools** (`propose_file_edit`, `write_file`) — `propose_file_edit` stages a `FileChange` record and requests approval; `write_file` validates the `changeId` is approved in the DB before writing
-- **Destructive tools** (`create_branch`, `commit_changes`, `open_pull_request`) — require explicit PR approval; branches are always prefixed `repo-pilot/{run-id}`
+- Write and destructive operations (file edits, branch create, commit, PR) are handled inline by `AgentStateMachine`, which calls `GitHubService` and `SandboxRunner` directly after approval gates resolve — they are not routed through the MCP server
 
 ### Security Invariants
 
-- `write_file` checks approval status in the database as the authoritative source — not just in-memory state
+- File writes are gated by an approval check against the database — `AgentStateMachine` queries `FileChange` records and only writes files whose `approved` field was set by the user; this check uses the DB as the authoritative source, not in-memory state
 - `validatePath()` runs before every file operation; fails closed on `../` traversal, absolute paths outside `REPO_ROOT`
 - Hard-coded blocklist of files never read: `.env*`, `*.pem`, `*.key`, `id_rsa`, `secrets.json`, etc.
 - GitHub PAT stored AES-256-GCM encrypted; never logged, never sent to Claude
@@ -121,7 +119,7 @@ Development follows 5 phases defined in `docs/architecture.md` §14:
    - PR #13/#14 ✓: propose_file_edit, write_file, approval endpoints, SSE
    - PR #15 ✓: PlanApprovalCard, FileEditApproval, DiffViewer, MainPanel wiring
 3. Docker-sandboxed test runner + repair loop ✓
-   - PR #16 ✓ (D1 backend): SandboxRunner, run_tests MCP tool, repair loop, test approval gate
+   - PR #16 ✓ (D1 backend): SandboxRunner wired into AgentStateMachine, repair loop, test approval gate
    - PR #17 ✓ (D2 frontend): TestApprovalCard, TestOutputPanel, SSE wiring, MainPanel conditional rendering
 4. Branch, commit, PR integration ✓
    - PR #21 ✓ (D1 backend): GitHubService push/PR, MCP tools (create_branch, commit_changes, open_pull_request), PR approval gate, SSE events
