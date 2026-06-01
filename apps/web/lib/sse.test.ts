@@ -35,6 +35,8 @@ describe('useAgentStream', () => {
       activeRunId: null,
       traceEvents: [],
       runStatus: 'idle',
+      tokenUsage: null,
+      connectionError: false,
     })
   })
 
@@ -200,5 +202,28 @@ describe('useAgentStream', () => {
     es.onerror?.(new Event('error'))
     expect(useAppStore.getState().prApproval).toBeNull()
     expect(useAppStore.getState().runStatus).toBe('failed')
+  })
+
+  it('dispatches token_usage event to setTokenUsage', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'token_usage', inputTokens: 120, outputTokens: 340 }))
+    expect(useAppStore.getState().tokenUsage).toEqual({ inputTokens: 120, outputTokens: 340 })
+  })
+
+  it('onerror sets connectionError when run status is still running', () => {
+    useAppStore.setState({ runStatus: 'running' })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.onerror?.(new Event('error'))
+    expect(useAppStore.getState().connectionError).toBe(true)
+  })
+
+  it('onerror does NOT set connectionError when run status is completed', () => {
+    useAppStore.setState({ runStatus: 'completed' })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.onerror?.(new Event('error'))
+    expect(useAppStore.getState().connectionError).toBe(false)
   })
 })

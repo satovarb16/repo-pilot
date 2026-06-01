@@ -15,6 +15,9 @@ export function useAgentStream(runId: string | null): void {
   const setPRApproval = useAppStore((s) => s.setPRApproval)
   const setPROpened = useAppStore((s) => s.setPROpened)
   const clearPRApproval = useAppStore((s) => s.clearPRApproval)
+  // Phase 5: token usage + connection error handlers
+  const setTokenUsage = useAppStore((s) => s.setTokenUsage)
+  const setConnectionError = useAppStore((s) => s.setConnectionError)
 
   useEffect(() => {
     if (!runId) return
@@ -69,6 +72,9 @@ export function useAgentStream(runId: string | null): void {
         })
       } else if (event.type === 'repair_started') {
         setRepairAttempt(event.attempt)
+      } else if (event.type === 'token_usage') {
+        // Cumulative token totals from the latest Claude turn
+        setTokenUsage({ inputTokens: event.inputTokens, outputTokens: event.outputTokens })
       } else if (event.type === 'run_completed') {
         setRunStatus('completed')
         es.close()
@@ -79,6 +85,13 @@ export function useAgentStream(runId: string | null): void {
     }
 
     es.onerror = () => {
+      // Only flag a connection error when the run is still active — a normal
+      // terminal close (run_completed, run_failed) will have already changed
+      // runStatus before the EventSource fires onerror.
+      const currentStatus = useAppStore.getState().runStatus
+      if (currentStatus === 'running') {
+        setConnectionError(true)
+      }
       // Clear any pending approval gate — the run is dead
       clearPRApproval()
       setRunStatus('failed')
@@ -88,5 +101,5 @@ export function useAgentStream(runId: string | null): void {
     return () => {
       es.close()
     }
-  }, [runId, appendTraceEvent, setRunStatus, setPlanProposal, addPendingEdit, appendTestRun, updateTestRun, setRepairAttempt, setTestApproval, setPRApproval, setPROpened, clearPRApproval])
+  }, [runId, appendTraceEvent, setRunStatus, setPlanProposal, addPendingEdit, appendTestRun, updateTestRun, setRepairAttempt, setTestApproval, setPRApproval, setPROpened, clearPRApproval, setTokenUsage, setConnectionError])
 }

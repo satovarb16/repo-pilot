@@ -9,6 +9,8 @@ import { TestApprovalCard } from '@/components/runs/TestApprovalCard'
 import { TestOutputPanel } from '@/components/runs/TestOutputPanel'
 import { PRApprovalCard } from '@/components/runs/PRApprovalCard'
 import { approveTestRun, rejectTestRun, fetchTestResults } from '@/lib/api'
+import { EmptyState } from '@/components/EmptyState'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 const TEST_OUTPUT_STATES = new Set(['running_tests', 'reviewing', 'repairing'])
 
@@ -62,13 +64,18 @@ export function MainPanel() {
 
   return (
     <main className="flex-1 flex flex-col overflow-hidden">
+      {/* ErrorBoundary wraps only the content area — sidebar stays navigable on error */}
+      <ErrorBoundary>
       <div className="flex-1 overflow-auto p-6">
         {!selectedRepoId ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <p className="text-sm text-muted-foreground">
-              Select a repo from the sidebar to start a task
-            </p>
-          </div>
+          <EmptyState
+            icon={
+              <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+              </svg>
+            }
+            title="Select a repo from the sidebar to start a task"
+          />
         ) : planProposal && activeRunId ? (
           <PlanApprovalCard runId={activeRunId} planText={planProposal.planText} />
         ) : pendingEdits.some((e) => e.status === 'pending') && activeRunId ? (
@@ -106,6 +113,7 @@ export function MainPanel() {
           <TaskComposer />
         )}
       </div>
+      </ErrorBoundary>
     </main>
   )
 }
