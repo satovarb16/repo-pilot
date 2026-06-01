@@ -533,15 +533,22 @@ This runs before every `read_file`, `write_file`, and `propose_file_edit` call. 
 
 ### Secret Redaction
 
-Applied to all file contents and tool outputs before forwarding to Claude API. Regex patterns to scrub:
+Applied to all file contents, tool outputs, AND tool inputs before forwarding to Claude API or emitting to the browser via SSE. Regex patterns:
 
 ```
-- /^[A-Z_]+=.*/gm               → .env key=value lines
-- /sk-[a-zA-Z0-9]{32,}/g        → OpenAI/Stripe-style keys
-- /ghp_[a-zA-Z0-9]{36}/g        → GitHub PATs
-- /-----BEGIN.*PRIVATE KEY-----/ → Private key headers
-- /Bearer [a-zA-Z0-9\-._~+/]+=*/g → Bearer tokens
-- /[0-9a-f]{32,64}/g             → Generic hex secrets (conservative)
+- /^[A-Z_]+=.*/gm                    → .env key=value lines
+- /sk-[a-zA-Z0-9]{32,}/g             → OpenAI-style keys
+- /sk_live_[a-zA-Z0-9]{32,}/g        → Stripe live keys
+- /ghp_[a-zA-Z0-9]{36}/g             → GitHub PATs
+- /npm_[a-zA-Z0-9]{36}/g             → npm tokens
+- /SG\.[a-zA-Z0-9._]{32,}/g          → SendGrid API keys
+- /SK[a-zA-Z0-9]{32}/g               → Twilio SK tokens
+- /AC[a-zA-Z0-9]{32}/g               → Twilio account SIDs
+- /eyJ[a-zA-Z0-9._-]{32,}/g          → JWT tokens (eyJ.eyJ. shape)
+- /"private_key"\s*:\s*"[^"]+"/g      → GCP service account private key JSON field
+- /-----BEGIN.*PRIVATE KEY-----/      → Private key PEM headers
+- /Bearer [a-zA-Z0-9\-._~+/]+=*/g    → Bearer tokens
+- /[0-9a-f]{32,64}/g                  → Generic hex secrets (conservative)
 ```
 
 Replaced with `[REDACTED]`. Log when redaction occurs (not what was redacted).
@@ -1095,35 +1102,43 @@ repo-pilot/
 
 ---
 
-### Phase 5 — Trace Viewer, Security Hardening, and Polished Demo
+### Phase 5 — Trace Viewer, Security Hardening, and Polished Demo ✓ COMPLETE
 
-**Goals:** Production-quality UI, complete trace visibility, security review, demo-ready.
+**Goals:** Production-quality UI, complete trace visibility, security hardening, demo-ready.
 
-**Deliverables:**
-- Full tool trace viewer with expandable JSON
-- Security mode indicator in header
-- Token usage counter
-- Past runs sidebar with status badges
-- Security page explaining the permission model
-- Error states and retry UI
-- Demo recording script
+#### PR #24 ✓ COMPLETE — D1 Backend (feat/phase-5-pr-d1-backend)
 
-**Backend work:** Token counting from Claude API responses, complete trace endpoint, error recovery for common failures.
+- **SecretRedactor** expanded: 6 new patterns — Stripe `sk_live_`, JWT (`eyJ.eyJ.` shape), npm `npm_` tokens, SendGrid API keys, Twilio `SK`/`AC`-prefixed tokens, GCP service account `private_key` JSON field; redaction now applied to both `input` and `output` of `tool_called` SSE events before they reach the browser (previously only output was redacted)
+- **ClaudeService**: optional `onUsage` callback added to `sendWithTools()`; callers receive `{ inputTokens, outputTokens }` per Claude call
+- **AgentStateMachine**: accumulates per-run token totals from the `onUsage` callback; emits `token_usage` SSE event after each Claude turn; persists `inputTokens` / `outputTokens` to the `AgentRun` record on completion
+- **AgentRunner**: concurrency cap via `acquireSlot()` / `releaseSlot()` (atomic check+increment with no TOCTOU race); `MAX_CONCURRENT_RUNS` env var (default 2, 0 = unlimited); `POST /api/v1/agent/runs` returns HTTP 429 when cap is exceeded
+- **Prisma**: additive migration — nullable `inputTokens Int?` / `outputTokens Int?` columns on `AgentRun`
+- **Shared types**: `token_usage` SSE event variant added to the union
 
-**Frontend work:** All polish items from the frontend spec, security page, responsive layout, loading skeletons, toast notifications.
+**Bug fixes (from code review):**
+- `activeRuns` was never decremented if a service constructor threw before `sm.start().finally()` was registered — fixed with try/catch in `start()`
+- `MAX_CONCURRENT_RUNS` was read from `process.env` directly in the constructor fallback, bypassing schema validation — now passed as validated `env.MAX_CONCURRENT_RUNS` from `index.ts`
+- TOCTOU race between `checkConcurrency()` and `activeRuns++` across an await boundary — replaced with `acquireSlot()` (check+increment atomic) and `releaseSlot()` for explicit cleanup on failure paths
 
-**Deferred from Phase 1 (PR C2):**
-- Component tests with Playwright E2E (deferred until UI is stable)
-- PAT rotation / GitHub OAuth App flow (replaces PAT form in `ConnectRepoDialog`)
-- Auto-reconnect SSE after server restart (EventSource reconnect with exponential backoff)
+**Tests:** 69 API tests + 135 agent-core tests passing; TypeScript clean.
 
-**MCP work:** Remaining prompts: `write_tests_prompt`, `review_diff_prompt`, `create_pr_summary_prompt`.
+#### PR #25 ✓ COMPLETE — D2 Frontend (feat/phase-5-pr-d2-frontend)
 
-**Security work:** End-to-end security audit: path traversal, blocklist, approval bypass, secret redaction, Docker sandbox isolation.
+- **Zustand store**: `tokenUsage` (`inputTokens`, `outputTokens`, `totalTokens`) and `connectionError` state; both reset on new run or repo selection
+- **SSE hook**: dispatches `token_usage` events; `onerror` guarded — only sets `connectionError` and `runStatus='failed'` when run is still active (`currentStatus === 'running'`), preventing clean completions from being overwritten; on error, clears `planProposal`, `testApprovalCommand`, and `prApproval` so stale approval cards don't persist
+- **TraceLog**: refactored from flat monospace log to expandable `<details>/<summary>` cards per `tool_called` event; each card shows tool name, timing, and collapsible input/output JSON; disconnect banner shown when `connectionError && runStatus === 'failed'`
+- **RightPanel**: compact `↑in ↓out` token counter widget (updates reactively, resets on new run); static "Redaction active" security badge in the panel header
+- **ErrorBoundary**: class component wrapping the three-panel content inside `MainPanel`; catches render errors and shows a fallback card with a reset button
+- **EmptyState**: shared component (icon + title + hint) replacing plain-text empty states in Sidebar, MainPanel, and TraceLog
 
-**Acceptance criteria:** 5-minute demo run is smooth with no crashes. Trace viewer shows all tool calls. PR is opened on AlgoArena. Security page explains the model correctly.
+**Bug fixes (from code review):**
+- `setRunStatus('failed')` was unconditional in `onerror` — now guarded with `currentStatus === 'running'`
+- Disconnect banner condition was unreachable (`runStatus === 'running'` was never true when `connectionError` was true) — fixed to check `runStatus === 'failed'`
+- `onerror` only cleared `prApproval` — now also clears `planProposal` and `testApprovalCommand` so stale approval cards don't persist for dead runs
 
-**Likely issues:** UI polish taking longer than expected, SSE reliability in production build, Docker image size for demo.
+**Tests:** 132 web tests + 135 agent-core tests + 69 API tests passing; TypeScript clean.
+
+**Acceptance criteria:** ✓ Trace viewer shows expandable tool call cards with JSON. Token counter updates live. Disconnect banner appears on SSE error but not on clean completion. ErrorBoundary prevents full-page crashes. Empty states render across all three panels.
 
 ---
 

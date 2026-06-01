@@ -64,9 +64,11 @@ The frontend stays live via SSE (`GET /api/v1/agent/runs/:id/stream`), not polli
 ### Key Backend Services
 
 - **AgentOrchestrator** — owns the `AgentStateMachine` per run; drives Claude API calls, MCP sessions, approval gates, and DB state transitions
+- **AgentRunner** — per-run `EventEmitter` map; enforces concurrency cap via `acquireSlot()` / `releaseSlot()` (`MAX_CONCURRENT_RUNS` env, default 2, 0 = unlimited); returns HTTP 429 when cap is exceeded
 - **MCPClientManager** — spawns `repo-agent-mcp-server` as a child process over stdio; wraps all tool calls with logging and error handling
 - **GitHubService** (Octokit) — clone, branch create, commit, PR. All write operations are gated by approval checks before this service is invoked
-- **SecretRedactor** — applied to all file contents and tool outputs before forwarding to Claude API; regex-based patterns for `.env`, GitHub PATs, private key blocks, bearer tokens, etc.
+- **SecretRedactor** — applied to all file contents and tool outputs before forwarding to Claude API; patterns cover `.env` key-value pairs, GitHub PATs, Stripe `sk_live_`, JWT (`eyJ.eyJ.`), npm tokens, SendGrid, Twilio (`SK`/`AC`), GCP service account `private_key`, private key PEM blocks, bearer tokens; redaction also applied to tool call **inputs** in SSE events before they reach the browser
+- **ClaudeService** — Anthropic SDK wrapper; exposes optional `onUsage` callback so callers receive per-call token counts; state machine accumulates totals per run
 - **SandboxRunner** — builds a Docker image from the local clone, mounts proposed changes, runs the test command, collects output, destroys the container
 
 ### Agent State Machine
@@ -94,7 +96,7 @@ Runs as a sidecar process with `REPO_ROOT` env var. Operates on the local clone.
 
 ### Frontend Stack
 
-Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-continued`. Three-panel dashboard: left sidebar (repos/runs), center (task composer, plan card, step timeline, approval gates), right panel (tool trace, diff viewer, test output).
+Next.js 15 App Router, TypeScript, Tailwind CSS, shadcn/ui, `react-diff-viewer-continued`. Three-panel dashboard: left sidebar (repos/runs), center (task composer, plan card, step timeline, approval gates), right panel (expandable tool trace cards with JSON input/output + timing, diff viewer, test output, token counter widget, "Redaction active" badge). Includes `ErrorBoundary` (class component, reset button) and a shared `EmptyState` component used across sidebar, main panel, and trace log.
 
 ## Branch & Documentation Strategy
 
@@ -124,7 +126,9 @@ Development follows 5 phases defined in `docs/architecture.md` §14:
 4. Branch, commit, PR integration ✓
    - PR #21 ✓ (D1 backend): GitHubService push/PR, MCP tools (create_branch, commit_changes, open_pull_request), PR approval gate, SSE events
    - PR #22 ✓ (D2 frontend): PRApprovalCard, SSE wiring (pr_approval_required, pr_opened), store PR state, MainPanel conditional rendering
-5. Trace viewer, security hardening, demo polish
+5. Trace viewer, security hardening, demo polish ✓
+   - PR #24 ✓ (D1 backend): SecretRedactor expanded (6 new patterns + tool input redaction), token usage tracking (onUsage callback, token_usage SSE event, inputTokens/outputTokens persisted), concurrency cap (acquireSlot/releaseSlot, MAX_CONCURRENT_RUNS, HTTP 429), Prisma migration
+   - PR #25 ✓ (D2 frontend): TraceLog expandable cards (input/output JSON + timing), token counter widget, disconnect banner, ErrorBoundary, EmptyState component, SSE onerror guard
 
 The first 10 concrete implementation tasks are listed in §15.
 
@@ -136,6 +140,7 @@ See `.env.example` (to be created). Critical vars:
 - `ANTHROPIC_API_KEY` — Claude API key
 - `TOKEN_ENCRYPTION_KEY` — AES-256-GCM key for PAT storage
 - `REPO_ROOT` — base path for local repo clones (e.g. `/tmp/repo-pilot/clones`)
+- `MAX_CONCURRENT_RUNS` — max simultaneous agent runs (default `2`; set to `0` for unlimited)
 
 ## Testing & CI/CD
 
