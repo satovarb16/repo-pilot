@@ -159,4 +159,46 @@ describe('useAgentStream', () => {
     es.emit(JSON.stringify({ type: 'approval_required', approvalType: 'test_run', command: 'npm test' }))
     expect(useAppStore.getState().testApprovalCommand).toBe('npm test')
   })
+
+  it('dispatches approval_required {approvalType:pr} to setPRApproval', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'approval_required', approvalType: 'pr', prTitle: 'feat: x', prBody: 'body text' }))
+    expect(useAppStore.getState().prApproval).toEqual({ prTitle: 'feat: x', prBody: 'body text' })
+  })
+
+  it('dispatches pr_opened to setPROpened and clears prApproval', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'pr_opened', prUrl: 'https://github.com/owner/repo/pull/7', prNumber: 7 }))
+    expect(useAppStore.getState().prUrl).toBe('https://github.com/owner/repo/pull/7')
+    expect(useAppStore.getState().prNumber).toBe(7)
+    expect(useAppStore.getState().prApproval).toBeNull()
+  })
+
+  it('dispatches run_cancelled to clearPRApproval and sets runStatus cancelled', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'run_cancelled' }))
+    expect(useAppStore.getState().prApproval).toBeNull()
+    expect(useAppStore.getState().runStatus).toBe('cancelled')
+  })
+
+  it('run_cancelled closes the EventSource', () => {
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.emit(JSON.stringify({ type: 'run_cancelled' }))
+    expect(es.closed).toBe(true)
+  })
+
+  it('onerror clears prApproval before setting runStatus failed', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+    renderHook(() => useAgentStream('run-123'))
+    const es = MockEventSource.instances[0]
+    es.onerror?.(new Event('error'))
+    expect(useAppStore.getState().prApproval).toBeNull()
+    expect(useAppStore.getState().runStatus).toBe('failed')
+  })
 })

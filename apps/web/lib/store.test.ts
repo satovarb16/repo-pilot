@@ -221,3 +221,59 @@ describe('Phase 3 test run state', () => {
     expect(useAppStore.getState().testApprovalCommand).toBeNull()
   })
 })
+
+describe('Phase 4 PR state', () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      prApproval: null,
+      prUrl: null,
+      prNumber: null,
+    })
+  })
+
+  it('setPRApproval sets prApproval with prTitle and prBody', () => {
+    useAppStore.getState().setPRApproval({ prTitle: 'feat: new thing', prBody: 'Automated by RepoPilot\n\nTask: new thing' })
+    expect(useAppStore.getState().prApproval).toEqual({
+      prTitle: 'feat: new thing',
+      prBody: 'Automated by RepoPilot\n\nTask: new thing',
+    })
+  })
+
+  it('clearPRApproval sets prApproval to null', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+    useAppStore.getState().clearPRApproval()
+    expect(useAppStore.getState().prApproval).toBeNull()
+  })
+
+  it('setPROpened sets prUrl and prNumber and clears prApproval', () => {
+    useAppStore.setState({ prApproval: { prTitle: 'feat: x', prBody: 'body' } })
+    useAppStore.getState().setPROpened({ prUrl: 'https://github.com/owner/repo/pull/42', prNumber: 42 })
+    expect(useAppStore.getState().prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(useAppStore.getState().prNumber).toBe(42)
+    expect(useAppStore.getState().prApproval).toBeNull()
+  })
+
+  it('setActiveRun resets PR state to null', () => {
+    useAppStore.setState({
+      prApproval: { prTitle: 'feat: x', prBody: 'body' },
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+    })
+    useAppStore.getState().setActiveRun('run-new')
+    expect(useAppStore.getState().prApproval).toBeNull()
+    expect(useAppStore.getState().prUrl).toBeNull()
+    expect(useAppStore.getState().prNumber).toBeNull()
+  })
+
+  it('selectRepo resets PR state to null', () => {
+    useAppStore.setState({
+      prApproval: { prTitle: 'feat: x', prBody: 'body' },
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+    })
+    useAppStore.getState().selectRepo('repo-1')
+    expect(useAppStore.getState().prApproval).toBeNull()
+    expect(useAppStore.getState().prUrl).toBeNull()
+    expect(useAppStore.getState().prNumber).toBeNull()
+  })
+})
