@@ -25,20 +25,21 @@ const makeMockSandboxRunner = (overrides?: Partial<TestRunResult>): SandboxRunne
     }),
   }) as unknown as SandboxRunner;
 
-// Mock ClaudeService and MCPClientManager — only DB interaction is real
+// Mock OllamaService and MCPClientManager — only DB interaction is real
 const mockCallTool = vi.fn().mockResolvedValue('src/index.ts\npackage.json\nREADME.md');
 const mockStart = vi.fn().mockResolvedValue(undefined);
 const mockStop = vi.fn().mockResolvedValue(undefined);
 const mockMCP = { start: mockStart, callTool: mockCallTool, stop: mockStop } as any;
 
+// Return LLMMessage shapes (string content — OpenAI/Ollama native format)
 const mockSendWithTools = vi.fn().mockResolvedValue([
   { role: 'user', content: 'Add a feature' },
   {
     role: 'assistant',
-    content: [{ type: 'text', text: '1. Write failing test\n2. Implement\n3. Commit' }],
+    content: '1. Write failing test\n2. Implement\n3. Commit',
   },
 ]);
-const mockClaude = { sendWithTools: mockSendWithTools } as any;
+const mockOllama = { sendWithTools: mockSendWithTools } as any;
 
 const prisma = new PrismaClient();
 
@@ -79,7 +80,7 @@ beforeEach(async () => {
     { role: 'user', content: 'Add a feature' },
     {
       role: 'assistant',
-      content: [{ type: 'text', text: '1. Write test\n2. Implement\n3. Commit' }],
+      content: '1. Write test\n2. Implement\n3. Commit',
     },
   ]);
   noopPlanApproval.mockResolvedValue(true);
@@ -103,7 +104,7 @@ function makeSM(emitter?: EventEmitter, sandboxRunner?: SandboxRunner) {
   return new AgentStateMachine(
     runId,
     prisma,
-    mockClaude,
+    mockOllama,
     mockMCP,
     '/tmp/repo',
     noopPlanApproval,
@@ -159,8 +160,8 @@ describe('AgentStateMachine', () => {
     expect(failedStep?.errorMessage).toContain('spawn failed');
   });
 
-  it('transitions to failed when ClaudeService throws', async () => {
-    mockSendWithTools.mockRejectedValueOnce(new Error('Claude API error'));
+  it('transitions to failed when OllamaService throws', async () => {
+    mockSendWithTools.mockRejectedValueOnce(new Error('Ollama API error'));
 
     const sm = makeSM();
     await expect(sm.start()).rejects.toThrow('Claude API error');
@@ -299,10 +300,11 @@ const makePrisma = (overrides?: object) => ({
   ...overrides,
 });
 
+// Returns LLMMessage shapes (string content — OllamaService native format)
 const makeClaude = (planText = 'Step 1: analyze\nStep 2: edit') => ({
   sendWithTools: vi.fn().mockResolvedValue([
     { role: 'user', content: 'Task: fix the bug' },
-    { role: 'assistant', content: [{ type: 'text', text: planText }] },
+    { role: 'assistant', content: planText },
   ]),
 });
 

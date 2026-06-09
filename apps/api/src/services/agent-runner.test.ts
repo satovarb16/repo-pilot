@@ -6,7 +6,8 @@ const makeRunner = () =>
   new AgentRunner(
     {} as never,  // prisma — not used in these tests
     '/tmp/repos',
-    'fake-api-key',
+    'http://localhost:11434',  // ollamaBaseUrl
+    'qwen2.5-coder:7b',       // ollamaModel
     '/fake/mcp-path',
   )
 
@@ -128,7 +129,8 @@ describe('AgentRunner concurrency cap', () => {
     const runner = new AgentRunner(
       {} as never,
       '/tmp/repos',
-      'fake-api-key',
+      'http://localhost:11434',
+      'qwen2.5-coder:7b',
       '/fake/mcp-path',
       undefined,
       undefined,
@@ -143,7 +145,8 @@ describe('AgentRunner concurrency cap', () => {
     const runner = new AgentRunner(
       {} as never,
       '/tmp/repos',
-      'fake-api-key',
+      'http://localhost:11434',
+      'qwen2.5-coder:7b',
       '/fake/mcp-path',
       undefined,
       undefined,
@@ -159,7 +162,8 @@ describe('AgentRunner concurrency cap', () => {
     const runner = new AgentRunner(
       {} as never,
       '/tmp/repos',
-      'fake-api-key',
+      'http://localhost:11434',
+      'qwen2.5-coder:7b',
       '/fake/mcp-path',
       undefined,
       undefined,
@@ -175,7 +179,8 @@ describe('AgentRunner concurrency cap', () => {
     const runner = new AgentRunner(
       {} as never,
       '/tmp/repos',
-      'fake-api-key',
+      'http://localhost:11434',
+      'qwen2.5-coder:7b',
       '/fake/mcp-path',
       undefined,
       undefined,
@@ -190,7 +195,8 @@ describe('AgentRunner concurrency cap', () => {
     const runner = new AgentRunner(
       {} as never,
       '/tmp/repos',
-      'fake-api-key',
+      'http://localhost:11434',
+      'qwen2.5-coder:7b',
       '/fake/mcp-path',
       undefined,
       undefined,

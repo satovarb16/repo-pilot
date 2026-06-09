@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import { readFile, writeFile } from 'node:fs/promises';
 import { PrismaClient } from '@prisma/client';
 import { createPatch } from 'diff';
-import type Anthropic from '@anthropic-ai/sdk';
-import type { ClaudeService } from './claude-service.js';
+import type { OllamaService } from './ollama-service.js';
+import type { LLMMessage, LLMTool } from './types/llm.js';
 import type { MCPClientManager } from './mcp-client-manager.js';
 import { PathValidator } from './path-validator.js';
 import type { SandboxRunner } from './sandbox-runner.js';
@@ -16,11 +16,11 @@ import type { SecretRedactor } from './secret-redactor.js';
 // Re-export so existing imports from agent-state-machine keep compiling
 export type { AgentSSEEvent } from '@repo-pilot/shared';
 
-const PHASE_1_TOOLS: Anthropic.Tool[] = [
+const PHASE_1_TOOLS: LLMTool[] = [
   {
     name: 'list_files',
     description: 'List all files in the repository or a subdirectory.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: { path: { type: 'string', description: 'Relative path (default: ".")' } },
     },
@@ -28,7 +28,7 @@ const PHASE_1_TOOLS: Anthropic.Tool[] = [
   {
     name: 'read_file',
     description: 'Read the contents of a file. Sensitive files are blocked.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: { path: { type: 'string', description: 'Relative path to the file' } },
       required: ['path'],
@@ -37,7 +37,7 @@ const PHASE_1_TOOLS: Anthropic.Tool[] = [
   {
     name: 'search_repo',
     description: 'Search for a string or regex in all files. Returns up to 100 matches.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'String or regex to search for' },
@@ -49,20 +49,20 @@ const PHASE_1_TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_diff',
     description: 'Get the current git diff.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: { staged: { type: 'boolean', description: 'Show staged changes' } },
     },
   },
 ];
 
-const PHASE_2_TOOLS: Anthropic.Tool[] = [
+const PHASE_2_TOOLS: LLMTool[] = [
   ...PHASE_1_TOOLS,
   {
     name: 'propose_file_edit',
     description:
       'Propose a complete replacement of a file\'s content. The user must approve before the file is written to disk.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Relative path to the file to edit' },
@@ -75,7 +75,7 @@ const PHASE_2_TOOLS: Anthropic.Tool[] = [
 
 // PHASE_3_TOOLS: same as PHASE_2_TOOLS (read tools + propose_file_edit).
 // No run_tests tool — test execution is inline in the state machine (ADR-1).
-const PHASE_3_TOOLS: Anthropic.Tool[] = [...PHASE_2_TOOLS];
+const PHASE_3_TOOLS: LLMTool[] = [...PHASE_2_TOOLS];
 
 export class AgentStateMachine {
   private stepCounter = 0;
@@ -92,7 +92,7 @@ export class AgentStateMachine {
   constructor(
     private readonly runId: string,
     private readonly prisma: PrismaClient,
-    private readonly claudeService: ClaudeService,
+    private readonly ollamaService: OllamaService,
     private readonly mcpClientManager: MCPClientManager,
     private readonly repoPath: string,
     private readonly waitForPlanApproval: () => Promise<boolean>,
@@ -171,7 +171,7 @@ export class AgentStateMachine {
 
       // analyzing_repo → planning
       await this.transition('planning', 'generate_plan', 'Generating implementation plan');
-      const planMessages = await this.claudeService.sendWithTools(
+      const planMessages = await this.ollamaService.sendWithTools(
         [
           {
             role: 'user',
@@ -190,7 +190,7 @@ export class AgentStateMachine {
       const lastPlanMessage = planMessages[planMessages.length - 1];
       await this.prisma.agentRun.update({
         where: { id: this.runId },
-        data: { planJson: lastPlanMessage.content as object },
+        data: { planJson: (lastPlanMessage as { content?: string }).content ?? undefined },
       });
       await this.completeStep('save_plan');
 
@@ -204,7 +204,7 @@ export class AgentStateMachine {
 
       // waiting_for_plan_approval → editing
       await this.transition('editing', 'edit_files', 'Implementing plan');
-      await this.claudeService.sendWithTools(
+      await this.ollamaService.sendWithTools(
         [
           ...planMessages,
           {
@@ -266,7 +266,7 @@ export class AgentStateMachine {
   // Phase 3 — test run, review, and bounded repair loop
   // ---------------------------------------------------------------------------
 
-  private async runTestPhase(lastPlanMessage: Anthropic.MessageParam): Promise<void> {
+  private async runTestPhase(lastPlanMessage: LLMMessage): Promise<void> {
     // waiting_for_test_run_approval
     await this.transition('waiting_for_test_run_approval', 'await_test_approval', 'Waiting for test-run approval');
     this.emit({ type: 'approval_required', approvalType: 'test_run', command: this.testCommand });
@@ -356,7 +356,7 @@ export class AgentStateMachine {
     this.emit({ type: 'repair_started', attempt: this.repairCount, maxAttempts: 2 });
 
     // Feed the failing output back to Claude and let it propose repair edits
-    const repairMessages: Anthropic.MessageParam[] = [
+    const repairMessages: LLMMessage[] = [
       {
         role: 'user',
         content: `The tests failed. Exit code: ${result.exitCode}.\n\nSTDOUT:\n${result.stdout}\n\nSTDERR:\n${result.stderr}\n\nPlease analyze the failures and propose file edits to fix them.`,
@@ -365,7 +365,7 @@ export class AgentStateMachine {
 
     const tracingExecutor = this.makeTracingExecutor();
 
-    await this.claudeService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor, undefined, (i, o) => this.onUsage(i, o));
+    await this.ollamaService.sendWithTools(repairMessages, PHASE_3_TOOLS, tracingExecutor, undefined, (i, o) => this.onUsage(i, o));
 
     // Re-run edit approval gate for repair edits
     const repairEdits = await this.prisma.fileChange.findMany({
@@ -406,7 +406,7 @@ export class AgentStateMachine {
   // Phase 4 — PR approval gate and opening_pr execution sequence
   // ---------------------------------------------------------------------------
 
-  private async runPRPhase(lastPlanMessage: Anthropic.MessageParam): Promise<void> {
+  private async runPRPhase(lastPlanMessage: LLMMessage): Promise<void> {
     // Gather approved files for the PR body
     const approvedFiles = await this.prisma.fileChange.findMany({
       where: { runId: this.runId, approved: true },
@@ -628,12 +628,9 @@ export class AgentStateMachine {
   }
 }
 
-function extractTextFromMessage(message: Anthropic.MessageParam): string {
-  const content = Array.isArray(message.content)
-    ? message.content
-    : [{ type: 'text', text: String(message.content) }];
-  return content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
+function extractTextFromMessage(message: LLMMessage): string {
+  // OllamaService returns string content (OpenAI-native shape); null means no text
+  const content = (message as { content?: string | null }).content;
+  if (content == null) return '';
+  return content;
 }

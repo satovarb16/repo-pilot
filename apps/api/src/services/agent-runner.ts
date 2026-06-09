@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { PrismaClient } from '@prisma/client';
 import {
   AgentStateMachine,
-  ClaudeService,
+  OllamaService,
   GitHubService,
   MCPClientManager,
   SandboxRunner,
@@ -35,7 +35,8 @@ export class AgentRunner {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly repoRoot: string,
-    private readonly anthropicApiKey: string,
+    private readonly ollamaBaseUrl: string,
+    private readonly ollamaModel: string,
     private readonly mcpServerPath: string,
     private readonly dockerSocket?: string,
     private readonly dockerfilePath?: string,
@@ -80,7 +81,7 @@ export class AgentRunner {
       if (!this.emitters.has(runId)) this.emitters.set(runId, emitter);
 
       const secretRedactor = new SecretRedactor();
-      const claudeService = new ClaudeService(this.anthropicApiKey, secretRedactor);
+      const claudeService = new OllamaService(this.ollamaBaseUrl, this.ollamaModel, secretRedactor);
       const mcpClientManager = new MCPClientManager(repoPath, this.mcpServerPath);
       const sandboxRunner = new SandboxRunner(this.dockerSocket, this.dockerfilePath);
       const githubService = new GitHubService(this.repoRoot);

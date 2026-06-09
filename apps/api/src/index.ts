@@ -16,7 +16,7 @@ const env = parseEnv();
 const prisma = new PrismaClient();
 const encryption = new EncryptionService(env.TOKEN_ENCRYPTION_KEY);
 const githubService = new GitHubService(env.REPO_ROOT);
-const agentRunner = new AgentRunner(prisma, env.REPO_ROOT, env.ANTHROPIC_API_KEY, env.MCP_SERVER_PATH, env.DOCKER_SOCKET, undefined, env.MAX_CONCURRENT_RUNS);
+const agentRunner = new AgentRunner(prisma, env.REPO_ROOT, env.OLLAMA_BASE_URL, env.OLLAMA_MODEL, env.MCP_SERVER_PATH, env.DOCKER_SOCKET, undefined, env.MAX_CONCURRENT_RUNS);
 
 await ensureDevUser(prisma);
 
